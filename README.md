@@ -34,12 +34,12 @@ This is the complete, open-source build for the **LLM Stick** AI flash drive. Ev
 
 | File | Size | Source |
 |------|------|--------|
-| `llama.cpp-<commit>-linux-x86_64-cpu.tar.gz` | varies | Project-managed rotorquant runtime release asset (`runtime-cpu/`) |
-| `llama.cpp-<commit>-linux-x86_64-cuda.tar.gz` | varies | Project-managed rotorquant runtime release asset (`runtime-cuda/`) |
+| `llama-<release>-bin-ubuntu-<arch>.tar.gz` | varies | Pinned upstream `ggml-org/llama.cpp` release asset (`runtime-cpu/`) |
+| `llama-<release>-bin-ubuntu-vulkan-<arch>.tar.gz` | varies | Pinned upstream accelerated Linux release asset (`runtime-cuda/`, Vulkan by default) |
 | `Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf` | ~4.0GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
 | `Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf` | ~2.3GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
 
-The builder defaults to project-managed release URLs, but you can override them with:
+The builder defaults to pinned upstream `llama.cpp` release URLs, but you can override them with:
 
 ```bash
 LLAMA_CPP_CPU_PACKAGE_URL=...
@@ -109,7 +109,9 @@ LLM Stick/
 
 ## Runtime Notes
 
-- Runtime source is pinned to the rotorquant-enabled `johndpope/llama-cpp-turboquant` branch `feature/planarquant-kv-cache`, commit `20efe75`.
+- Default runtime packages are pinned to `ggml-org/llama.cpp` release `b8893`.
+- `runtime-cuda/` currently uses the pinned Linux Vulkan build as the default accelerated package; override `LLAMA_CPP_CUDA_PACKAGE_URL` if you have a CUDA-specific fork or release.
+- Rotorquant reference source remains `johndpope/llama-cpp-turboquant` branch `feature/planarquant-kv-cache`, commit `20efe75`, for users who want to override the packaged runtime.
 - `LinuxLaunch.sh` currently uses `llama-cli` for terminal chat and detects `llama-server` so the later orchestrator can reuse the same packaged runtime.
 - Existing rotorquant-capable forks can be reused immediately by overriding the package URLs in `BuildYourOwn.sh`.
 

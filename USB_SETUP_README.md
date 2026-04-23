@@ -100,6 +100,11 @@ Runtime package tarballs are extracted into:
 - `.system/runtime-cpu`
 - `.system/runtime-cuda`
 
+By default, the builder uses pinned upstream `ggml-org/llama.cpp` release assets:
+
+- CPU: `llama-b8893-bin-ubuntu-<arch>.tar.gz`
+- Accelerated Linux runtime: `llama-b8893-bin-ubuntu-vulkan-<arch>.tar.gz`
+
 You can point the builder at an existing rotorquant-enabled fork release:
 
 ```bash

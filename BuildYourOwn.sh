@@ -17,11 +17,34 @@ SKIP_DOWNLOADS="false"
 FORCE="false"
 AUTO_FORMAT="false"
 
-LLAMA_CPP_RUNTIME_VERSION="${LLAMA_CPP_RUNTIME_VERSION:-v0.1.0-rotorquant}"
+LLAMA_CPP_RUNTIME_REPO="${LLAMA_CPP_RUNTIME_REPO:-ggml-org/llama.cpp}"
+LLAMA_CPP_RUNTIME_VERSION="${LLAMA_CPP_RUNTIME_VERSION:-b8893}"
+ROTORQUANT_LLAMA_CPP_REPO="${ROTORQUANT_LLAMA_CPP_REPO:-johndpope/llama-cpp-turboquant}"
 ROTORQUANT_LLAMA_CPP_BRANCH="${ROTORQUANT_LLAMA_CPP_BRANCH:-feature/planarquant-kv-cache}"
 ROTORQUANT_LLAMA_CPP_COMMIT="${ROTORQUANT_LLAMA_CPP_COMMIT:-20efe75}"
-LLAMA_CPP_CPU_PACKAGE_URL="${LLAMA_CPP_CPU_PACKAGE_URL:-https://github.com/trydydd/llmstick/releases/download/${LLAMA_CPP_RUNTIME_VERSION}/llama.cpp-${ROTORQUANT_LLAMA_CPP_COMMIT}-linux-x86_64-cpu.tar.gz}"
-LLAMA_CPP_CUDA_PACKAGE_URL="${LLAMA_CPP_CUDA_PACKAGE_URL:-https://github.com/trydydd/llmstick/releases/download/${LLAMA_CPP_RUNTIME_VERSION}/llama.cpp-${ROTORQUANT_LLAMA_CPP_COMMIT}-linux-x86_64-cuda.tar.gz}"
+LLAMA_CPP_RUNTIME_ARCH="${LLAMA_CPP_RUNTIME_ARCH:-$(uname -m 2>/dev/null || printf 'unknown')}"
+
+case "$LLAMA_CPP_RUNTIME_ARCH" in
+  x86_64|amd64)
+    LLAMA_CPP_RUNTIME_PLATFORM="${LLAMA_CPP_RUNTIME_PLATFORM:-x64}"
+    ;;
+  aarch64|arm64)
+    LLAMA_CPP_RUNTIME_PLATFORM="${LLAMA_CPP_RUNTIME_PLATFORM:-arm64}"
+    ;;
+  *)
+    LLAMA_CPP_RUNTIME_PLATFORM="${LLAMA_CPP_RUNTIME_PLATFORM:-}"
+    ;;
+esac
+
+LLAMA_CPP_CPU_PACKAGE_URL="${LLAMA_CPP_CPU_PACKAGE_URL:-}"
+if [[ -z "$LLAMA_CPP_CPU_PACKAGE_URL" && -n "$LLAMA_CPP_RUNTIME_PLATFORM" ]]; then
+  LLAMA_CPP_CPU_PACKAGE_URL="https://github.com/${LLAMA_CPP_RUNTIME_REPO}/releases/download/${LLAMA_CPP_RUNTIME_VERSION}/llama-${LLAMA_CPP_RUNTIME_VERSION}-bin-ubuntu-${LLAMA_CPP_RUNTIME_PLATFORM}.tar.gz"
+fi
+
+LLAMA_CPP_CUDA_PACKAGE_URL="${LLAMA_CPP_CUDA_PACKAGE_URL:-}"
+if [[ -z "$LLAMA_CPP_CUDA_PACKAGE_URL" && -n "$LLAMA_CPP_RUNTIME_PLATFORM" ]]; then
+  LLAMA_CPP_CUDA_PACKAGE_URL="https://github.com/${LLAMA_CPP_RUNTIME_REPO}/releases/download/${LLAMA_CPP_RUNTIME_VERSION}/llama-${LLAMA_CPP_RUNTIME_VERSION}-bin-ubuntu-vulkan-${LLAMA_CPP_RUNTIME_PLATFORM}.tar.gz"
+fi
 Q8_URL="${Q8_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Instruct-2507-abliterated-GGUF/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf}"
 Q4_URL="${Q4_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Instruct-2507-abliterated-GGUF/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf}"
 
@@ -44,9 +67,13 @@ Options:
   -h, --help                 Show this help
 
 Environment overrides:
+  LLAMA_CPP_RUNTIME_REPO
   LLAMA_CPP_RUNTIME_VERSION
+  LLAMA_CPP_RUNTIME_ARCH
+  LLAMA_CPP_RUNTIME_PLATFORM
   LLAMA_CPP_CPU_PACKAGE_URL
   LLAMA_CPP_CUDA_PACKAGE_URL
+  ROTORQUANT_LLAMA_CPP_REPO
   ROTORQUANT_LLAMA_CPP_BRANCH
   ROTORQUANT_LLAMA_CPP_COMMIT
   Q8_URL
@@ -306,10 +333,21 @@ download_required_assets() {
   mkdir -p "$system_dir"
   log "Checking local assets in $HOME/Download (preferred), then $HOME/Downloads"
 
+  [[ -n "$LLAMA_CPP_CPU_PACKAGE_URL" ]] || fail "No default CPU runtime package is defined for architecture '$LLAMA_CPP_RUNTIME_ARCH'. Set LLAMA_CPP_CPU_PACKAGE_URL explicitly."
   install_runtime_package "CPU runtime" "$LLAMA_CPP_CPU_PACKAGE_URL" "$system_dir/runtime-cpu"
-  install_runtime_package "CUDA runtime" "$LLAMA_CPP_CUDA_PACKAGE_URL" "$system_dir/runtime-cuda"
-  if [[ -d "$system_dir/runtime-cpu" && -d "$system_dir/runtime-cuda" ]]; then
-    find "$system_dir/runtime-cpu" "$system_dir/runtime-cuda" -type f \( -name 'llama-cli' -o -name 'llama-server' \) -exec chmod +x {} +
+
+  if [[ -n "$LLAMA_CPP_CUDA_PACKAGE_URL" ]]; then
+    install_runtime_package "CUDA runtime" "$LLAMA_CPP_CUDA_PACKAGE_URL" "$system_dir/runtime-cuda"
+  else
+    log "Skipping accelerated runtime package because no default package is defined for architecture '$LLAMA_CPP_RUNTIME_ARCH'"
+  fi
+
+  if [[ -d "$system_dir/runtime-cpu" ]]; then
+    find "$system_dir/runtime-cpu" -type f \( -name 'llama-cli' -o -name 'llama-server' \) -exec chmod +x {} +
+  fi
+
+  if [[ -d "$system_dir/runtime-cuda" ]]; then
+    find "$system_dir/runtime-cuda" -type f \( -name 'llama-cli' -o -name 'llama-server' \) -exec chmod +x {} +
   fi
 
   download_or_copy_local_asset \
@@ -325,6 +363,11 @@ download_required_assets() {
 }
 
 print_summary() {
+  local accelerated_summary="(not installed)"
+  if [[ -d "$TARGET_DIR/.system/runtime-cuda" ]]; then
+    accelerated_summary="runtime-cuda/ (accelerated Linux llama.cpp package)"
+  fi
+
   cat <<EOF
 
 Build complete.
@@ -334,12 +377,17 @@ Created/updated: $TARGET_DIR/.system/
 
 Installed files:
 - runtime-cpu/ (llama.cpp CLI + server package)
-- runtime-cuda/ (llama.cpp CLI + server package)
+- $accelerated_summary
 - Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf
 - Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf
 
-Pinned rotorquant source:
-- repo: johndpope/llama-cpp-turboquant
+Pinned default runtime package source:
+- repo: $LLAMA_CPP_RUNTIME_REPO
+- release: $LLAMA_CPP_RUNTIME_VERSION
+- platform: ${LLAMA_CPP_RUNTIME_PLATFORM:-override-required}
+
+Rotorquant reference source:
+- repo: $ROTORQUANT_LLAMA_CPP_REPO
 - branch: $ROTORQUANT_LLAMA_CPP_BRANCH
 - commit: $ROTORQUANT_LLAMA_CPP_COMMIT
 

@@ -47,8 +47,11 @@
 - Refactored `BuildYourOwn.sh` to download only Linux runtime packages and to run only on Linux.
 - Removed Mac/Windows references from docs and setup instructions.
 
-### 8) Pinned rotorquant runtime source
-- Default runtime expectations are pinned to `johndpope/llama-cpp-turboquant`
+### 8) Pinned runtime defaults
+- Default packaged runtime downloads now point at pinned upstream `ggml-org/llama.cpp` release assets.
+- Release: `b8893`
+- Accelerated Linux package default: Ubuntu Vulkan build
+- Rotorquant reference source remains `johndpope/llama-cpp-turboquant`
 - Branch: `feature/planarquant-kv-cache`
 - Commit: `20efe75`
 

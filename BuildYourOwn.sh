@@ -167,7 +167,7 @@ build_rotorquant_runtime() {
     -DCMAKE_BUILD_TYPE=Release \
     -DLLAMA_BUILD_TESTS=OFF \
     -DLLAMA_BUILD_EXAMPLES=ON \
-    -DCMAKE_INSTALL_RPATH='$ORIGIN/../lib;$ORIGIN/..' \
+    -DCMAKE_INSTALL_RPATH='$ORIGIN/../lib;$ORIGIN/../lib64;$ORIGIN/..' \
     -DCMAKE_INSTALL_PREFIX="$staging_dir" \
     "${extra_cmake_args[@]}" || return 1
 

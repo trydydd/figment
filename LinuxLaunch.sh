@@ -98,7 +98,9 @@ runtime_library_path_for_binary() {
     runtime_root="$(cd "$binary_dir/.." 2>/dev/null && pwd -P)" || return 0
 
     for path_candidate in "$runtime_root/lib" "$runtime_root/lib64" "$runtime_root"; do
-        if [ -d "$path_candidate" ]; then
+        if [ -d "$path_candidate" ] && {
+            [ "$path_candidate" != "$runtime_root" ] || find "$path_candidate" -maxdepth 1 -type f \( -name '*.so' -o -name '*.so.*' \) -print -quit | grep -q .
+        }; then
             if [ -n "$library_path" ]; then
                 library_path="${library_path}:$path_candidate"
             else

@@ -31,7 +31,7 @@ resolve_binary() {
     local -a search_roots=()
 
     shopt -s nullglob
-    search_roots=("$root"/ "$root"/*/ "$root"/*/*/)
+    search_roots=( "$root"/ "$root"/*/ "$root"/*/*/ )
     shopt -u nullglob
 
     for search_root in "${search_roots[@]}"; do

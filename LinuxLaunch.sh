@@ -261,7 +261,7 @@ echo ""
 echo "----------------------------------------------------------------"
 
 # 10. EXECUTION
-LAUNCH_LOG="$(mktemp -t facts-launch.XXXXXX)"
+LAUNCH_LOG="$(mktemp -t llmstick-launch.XXXXXX)"
 LAUNCH_CMD=(
     "$BINARY"
     -m "$SELECTED_MODEL"
@@ -282,7 +282,7 @@ LAUNCH_EXIT=${PIPESTATUS[0]}
 
 if [ "$LAUNCH_EXIT" -ne 0 ]; then
     # Run a tiny non-interactive probe without --log-disable so architecture errors are visible.
-    PROBE_LOG="$(mktemp -t facts-probe.XXXXXX)"
+    PROBE_LOG="$(mktemp -t llmstick-probe.XXXXXX)"
     PROBE_CMD=(
         "$BINARY"
         -m "$SELECTED_MODEL"
@@ -309,7 +309,7 @@ if [ "$LAUNCH_EXIT" -ne 0 ]; then
             CACHE_TYPE_V="f16"
             CACHE_PROFILE_NAME="Compatibility [f16/f16] [automatic fallback]"
             rm -f "$LAUNCH_LOG"
-            LAUNCH_LOG="$(mktemp -t facts-launch.XXXXXX)"
+            LAUNCH_LOG="$(mktemp -t llmstick-launch.XXXXXX)"
 
             FALLBACK_CMD=(
                 "$BINARY"

@@ -243,8 +243,10 @@ extract_tarball() {
 
   require_cmd tar
   while IFS= read -r tar_entry; do
-    [[ "$tar_entry" = /* ]] && fail "Unsafe archive path in $(basename -- "$archive"): $tar_entry"
+    [[ "$tar_entry" == /* ]] && fail "Unsafe archive path in $(basename -- "$archive"): $tar_entry"
     [[ "$tar_entry" == *"../"* ]] && fail "Unsafe archive path in $(basename -- "$archive"): $tar_entry"
+    [[ "$tar_entry" == ../* ]] && fail "Unsafe archive path in $(basename -- "$archive"): $tar_entry"
+    [[ "$tar_entry" == *"/.." ]] && fail "Unsafe archive path in $(basename -- "$archive"): $tar_entry"
     [[ "$tar_entry" == ".." ]] && fail "Unsafe archive path in $(basename -- "$archive"): $tar_entry"
   done < <(tar -tzf "$archive")
 

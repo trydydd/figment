@@ -17,6 +17,7 @@ SYSTEM_DIR="$ROOT_DIR/.system"
 MODEL_HIGH="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf"
 MODEL_LOW="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf"
 MODEL_THINKING="$SYSTEM_DIR/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf"
+MODEL_CODER="$SYSTEM_DIR/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
 CTX_SIZE="${LLMSTICK_CTX_SIZE:-8192}"
 KV_PROFILE_REQUEST="${LLMSTICK_KV_PROFILE:-auto}"
 KV_ROTATION="${LLMSTICK_KV_ROTATION:-planar3}"
@@ -32,12 +33,17 @@ parse_args() {
                 MODEL_PROFILE_REQUEST="thinking"
                 shift
                 ;;
+            --coder)
+                MODEL_PROFILE_REQUEST="coder"
+                shift
+                ;;
             -h|--help)
                 cat <<'EOF'
-Usage: ./LinuxLaunch.sh [--thinking]
+Usage: ./LinuxLaunch.sh [--thinking] [--coder]
 
 Options:
   --thinking   Prefer the Thinking Q8 model when it is installed
+  --coder      Prefer the Qwen3 Coder Q4_K_M model when it is installed
 EOF
                 exit 0
                 ;;
@@ -280,23 +286,38 @@ fi
 DEFAULT_MODEL="$SELECTED_MODEL"
 DEFAULT_MODE_NAME="$MODE_NAME"
 
-if [ "$MODEL_PROFILE_REQUEST" = "thinking" ]; then
-    if [ -f "$MODEL_THINKING" ]; then
-        SELECTED_MODEL="$MODEL_THINKING"
-        MODE_NAME="Thinking Mode [Q8]"
-    else
-        case "$DEFAULT_MODE_NAME" in
-            "High Performance [Q8]") MODE_NAME="Fallback from Thinking [Q8]" ;;
-            "Efficiency Mode [Q4]") MODE_NAME="Fallback from Thinking [Q4]" ;;
-            *) MODE_NAME="$DEFAULT_MODE_NAME" ;;
-        esac
-    fi
-fi
+case "$MODEL_PROFILE_REQUEST" in
+    thinking)
+        if [ -f "$MODEL_THINKING" ]; then
+            SELECTED_MODEL="$MODEL_THINKING"
+            MODE_NAME="Thinking Mode [Q8]"
+        else
+            case "$DEFAULT_MODE_NAME" in
+                "High Performance [Q8]") MODE_NAME="Fallback from Thinking [Q8]" ;;
+                "Efficiency Mode [Q4]") MODE_NAME="Fallback from Thinking [Q4]" ;;
+                *) MODE_NAME="$DEFAULT_MODE_NAME" ;;
+            esac
+        fi
+        ;;
+    coder)
+        if [ -f "$MODEL_CODER" ]; then
+            SELECTED_MODEL="$MODEL_CODER"
+            MODE_NAME="Coder Mode [Q4_K_M]"
+        else
+            case "$DEFAULT_MODE_NAME" in
+                "High Performance [Q8]") MODE_NAME="Fallback from Coder [Q8]" ;;
+                "Efficiency Mode [Q4]") MODE_NAME="Fallback from Coder [Q4]" ;;
+                *) MODE_NAME="$DEFAULT_MODE_NAME" ;;
+            esac
+        fi
+        ;;
+esac
 
 # 9. FALLBACK CHECK
 if [ ! -f "$SELECTED_MODEL" ]; then
     if [ -f "$MODEL_HIGH" ]; then SELECTED_MODEL="$MODEL_HIGH"; MODE_NAME="Backup [Q8]";
     elif [ -f "$MODEL_LOW" ]; then SELECTED_MODEL="$MODEL_LOW"; MODE_NAME="Backup [Q4]";
+    elif [ -f "$MODEL_CODER" ]; then SELECTED_MODEL="$MODEL_CODER"; MODE_NAME="Backup [Coder Q4_K_M]";
     else
         echo ""
         echo "  [ERROR] No models found in .system folder!"

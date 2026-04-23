@@ -48,6 +48,7 @@ fi
 Q8_URL="${Q8_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Instruct-2507-abliterated-GGUF/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf}"
 Q4_URL="${Q4_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Instruct-2507-abliterated-GGUF/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf}"
 THINKING_Q8_URL="${THINKING_Q8_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Thinking-2507-abliterated-GGUF/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf?download=true}"
+CODER_Q4_URL="${CODER_Q4_URL:-https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf?download=true}"
 
 usage() {
   cat <<'EOF'
@@ -80,6 +81,7 @@ Environment overrides:
   Q8_URL
   Q4_URL
   THINKING_Q8_URL
+  CODER_Q4_URL
 
 Examples:
   ./BuildYourOwn.sh --target /media/$USER/facts
@@ -463,6 +465,11 @@ download_required_assets() {
     "$system_dir/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf" \
     "(~4.0GB)"
 
+  download_or_copy_local_asset \
+    "$CODER_Q4_URL" \
+    "$system_dir/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf" \
+    "(~17GB)"
+
 }
 
 print_summary() {
@@ -484,6 +491,7 @@ Installed files:
 - Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf
 - Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf
 - Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf
+- Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
 
 Pinned default runtime package source:
 - repo: $LLAMA_CPP_RUNTIME_REPO

@@ -382,7 +382,7 @@ is_kv_profile_error() {
 
 is_signal_exit() {
     local exit_code="$1"
-    [ "${exit_code:-0}" -ge 128 ] && [ "${exit_code:-0}" -le 255 ]
+    [ "${exit_code:-0}" -ge 129 ] && [ "${exit_code:-0}" -le 192 ]
 }
 
 # Clear Screen & Set Title

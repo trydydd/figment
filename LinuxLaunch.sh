@@ -27,6 +27,7 @@ ENGINE_VARIANT=""
 ENGINE_SERVER=""
 RUNTIME_HELP_OUTPUT=""
 SUPPORTED_CACHE_TYPES=""
+RUNTIME_LD_LIBRARY_PATH=""
 
 parse_args() {
     while [ $# -gt 0 ]; do
@@ -85,17 +86,62 @@ resolve_binary() {
     return 1
 }
 
+runtime_library_path_for_binary() {
+    local candidate="$1"
+    local binary_dir=""
+    local runtime_root=""
+    local path_candidate=""
+    local library_path=""
+
+    [ -n "$candidate" ] || return 0
+    binary_dir="$(cd "$(dirname "$candidate")" 2>/dev/null && pwd -P)" || return 0
+    runtime_root="$(cd "$binary_dir/.." 2>/dev/null && pwd -P)" || return 0
+
+    for path_candidate in "$runtime_root/lib" "$runtime_root/lib64" "$runtime_root"; do
+        if [ -d "$path_candidate" ]; then
+            if [ -n "$library_path" ]; then
+                library_path="${library_path}:$path_candidate"
+            else
+                library_path="$path_candidate"
+            fi
+        fi
+    done
+
+    printf '%s\n' "$library_path"
+}
+
+run_command_with_binary_libs() {
+    local candidate="$1"
+    shift
+    local runtime_library_path=""
+
+    runtime_library_path="$(runtime_library_path_for_binary "$candidate")"
+    if [ -n "$runtime_library_path" ]; then
+        LD_LIBRARY_PATH="${runtime_library_path}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$candidate" "$@"
+    else
+        "$candidate" "$@"
+    fi
+}
+
+run_runtime_command() {
+    if [ -n "$RUNTIME_LD_LIBRARY_PATH" ]; then
+        LD_LIBRARY_PATH="${RUNTIME_LD_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$@"
+    else
+        "$@"
+    fi
+}
+
 probe_binary() {
     local candidate="$1"
     [ -n "$candidate" ] || return 1
-    "$candidate" --help >/dev/null 2>&1
+    run_command_with_binary_libs "$candidate" --help >/dev/null 2>&1
 }
 
 detect_supported_cache_types() {
     local candidate="$1"
     local allowed_line=""
 
-    RUNTIME_HELP_OUTPUT="$("$candidate" --help 2>&1 || true)"
+    RUNTIME_HELP_OUTPUT="$(run_command_with_binary_libs "$candidate" --help 2>&1 || true)"
     allowed_line="$(
         printf '%s\n' "$RUNTIME_HELP_OUTPUT" | awk '
             /--cache-type-k/ { in_block=1; next }
@@ -346,6 +392,7 @@ fi
 
 chmod +x "$BINARY" 2>/dev/null
 [ -n "$ENGINE_SERVER" ] && chmod +x "$ENGINE_SERVER" 2>/dev/null || true
+RUNTIME_LD_LIBRARY_PATH="$(runtime_library_path_for_binary "$BINARY")"
 detect_supported_cache_types "$BINARY"
 
 if [ "$ENGINE_FALLBACK_MODE" = "true" ]; then
@@ -445,7 +492,7 @@ if [ -n "$GPU_FLAGS" ]; then
     LAUNCH_CMD+=($GPU_FLAGS)
 fi
 
-"${LAUNCH_CMD[@]}" 2>&1 | tee "$LAUNCH_LOG"
+run_runtime_command "${LAUNCH_CMD[@]}" 2>&1 | tee "$LAUNCH_LOG"
 LAUNCH_EXIT=${PIPESTATUS[0]}
 
 if [ "$LAUNCH_EXIT" -ne 0 ]; then
@@ -464,7 +511,7 @@ if [ "$LAUNCH_EXIT" -ne 0 ]; then
         PROBE_CMD+=($GPU_FLAGS)
     fi
 
-    "${PROBE_CMD[@]}" >"$PROBE_LOG" 2>&1 || true
+    run_runtime_command "${PROBE_CMD[@]}" >"$PROBE_LOG" 2>&1 || true
 
     if [ "$CACHE_TYPE_K" != "f16" ] || [ "$CACHE_TYPE_V" != "f16" ]; then
         if is_kv_profile_error "$PROBE_LOG" || is_kv_profile_error "$LAUNCH_LOG"; then
@@ -495,7 +542,7 @@ if [ "$LAUNCH_EXIT" -ne 0 ]; then
             fi
 
             echo "  KV Cache: $CACHE_PROFILE_NAME"
-            "${FALLBACK_CMD[@]}" 2>&1 | tee "$LAUNCH_LOG"
+            run_runtime_command "${FALLBACK_CMD[@]}" 2>&1 | tee "$LAUNCH_LOG"
             LAUNCH_EXIT=${PIPESTATUS[0]}
         fi
     fi

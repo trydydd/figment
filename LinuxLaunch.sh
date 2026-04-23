@@ -286,7 +286,7 @@ fi
 if [ ! -f "$SELECTED_MODEL" ]; then
     if [ "$MODEL_PROFILE_REQUEST" = "thinking" ] && [ -f "$MODEL_HIGH" ]; then
         SELECTED_MODEL="$MODEL_HIGH"
-        MODE_NAME="Backup [Q8]"
+        MODE_NAME="Fallback from Thinking [Q8]"
     elif [ -f "$MODEL_HIGH" ]; then SELECTED_MODEL="$MODEL_HIGH"; MODE_NAME="Backup [Q8]";
     elif [ -f "$MODEL_LOW" ]; then SELECTED_MODEL="$MODEL_LOW"; MODE_NAME="Backup [Q4]";
     else

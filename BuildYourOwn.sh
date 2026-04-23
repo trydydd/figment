@@ -280,6 +280,8 @@ download_or_copy_local_asset() {
   url_filename="$(basename -- "${url%%\?*}")"
 
   if ! copy_from_local_downloads_if_present "$filename" "$output"; then
+    # Some asset URLs add query strings (for example Hugging Face ?download=true),
+    # but local caches still use the pinned on-disk filename.
     if [[ "$url_filename" != "$filename" ]] && copy_from_local_downloads_if_present "$url_filename" "$output"; then
       return 0
     fi

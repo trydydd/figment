@@ -38,6 +38,7 @@ This is the complete, open-source build for the **LLM Stick** AI flash drive. Ev
 | `llama-<release>-bin-ubuntu-vulkan-<arch>.tar.gz` | varies | Pinned upstream accelerated Linux release asset (`runtime-cuda/`, Vulkan by default) |
 | `Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf` | ~4.0GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
 | `Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf` | ~2.3GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
+| `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf` | ~4.0GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Thinking-2507-abliterated-GGUF) |
 
 The builder defaults to pinned upstream `llama.cpp` release URLs, but you can override them with:
 
@@ -66,6 +67,7 @@ That makes it easy to reuse existing llama.cpp forks or build repos that already
 5. Your RAM is detected and the best model is selected:
    - 16GB+ → Q8 (high quality)
    - 8-15GB → Q4 (efficiency mode)
+   - `./LinuxLaunch.sh --thinking` → Thinking Q8 when installed
 6. GPU is detected (NVIDIA on Linux) and the best runtime package is selected:
    - `runtime-cuda/` when a CUDA-capable NVIDIA stack is available
    - `runtime-cpu/` otherwise
@@ -91,6 +93,7 @@ LLM Stick/
    ├── runtime-cpu/             # CPU llama.cpp package (llama-cli + llama-server)
    ├── runtime-cuda/            # CUDA llama.cpp package (llama-cli + llama-server)
    ├── *.Q8_0.gguf              # High performance model (~4GB)
+   ├── *Thinking*.Q8_0.gguf     # Optional Thinking model (~4GB)
    └── *.Q4_K_M.gguf            # Efficiency model (~2.3GB)
 ```
 
@@ -113,6 +116,7 @@ LLM Stick/
 - `runtime-cuda/` currently uses the pinned Linux Vulkan build as the default accelerated package; override `LLAMA_CPP_CUDA_PACKAGE_URL` if you have a CUDA-specific fork or release.
 - Rotorquant reference source remains `johndpope/llama-cpp-turboquant` branch `feature/planarquant-kv-cache`, commit `20efe75`, for users who want to override the packaged runtime.
 - `LinuxLaunch.sh` currently uses `llama-cli` for terminal chat and detects `llama-server` so the later orchestrator can reuse the same packaged runtime.
+- `LinuxLaunch.sh --thinking` prefers `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf` and falls back to the standard models if it is missing.
 - Existing rotorquant-capable forks can be reused immediately by overriding the package URLs in `BuildYourOwn.sh`.
 
 ## Tech Stack

@@ -16,12 +16,38 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SYSTEM_DIR="$ROOT_DIR/.system"
 MODEL_HIGH="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf"
 MODEL_LOW="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf"
+MODEL_THINKING="$SYSTEM_DIR/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf"
 CTX_SIZE="${LLMSTICK_CTX_SIZE:-8192}"
 KV_PROFILE_REQUEST="${LLMSTICK_KV_PROFILE:-auto}"
 KV_ROTATION="${LLMSTICK_KV_ROTATION:-planar3}"
+MODEL_PROFILE_REQUEST="${LLMSTICK_MODEL_PROFILE:-auto}"
 ENGINE_FALLBACK_MODE="false"
 ENGINE_VARIANT=""
 ENGINE_SERVER=""
+
+parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --thinking)
+                MODEL_PROFILE_REQUEST="thinking"
+                shift
+                ;;
+            -h|--help)
+                cat <<'EOF'
+Usage: ./LinuxLaunch.sh [--thinking]
+
+Options:
+  --thinking   Prefer the Thinking Q8 model when it is installed
+EOF
+                exit 0
+                ;;
+            *)
+                echo "Unknown argument: $1" >&2
+                exit 1
+                ;;
+        esac
+    done
+}
 
 resolve_binary() {
     local root="$1"
@@ -142,6 +168,7 @@ is_kv_profile_error() {
 }
 
 # Clear Screen & Set Title
+parse_args "$@"
 printf "\033]0;Qwen AI - Linux Launcher\007"
 clear
 echo "----------------------------------------------------------------"
@@ -250,9 +277,17 @@ else
     MODE_NAME="Efficiency Mode [Q4]"
 fi
 
+if [ "$MODEL_PROFILE_REQUEST" = "thinking" ]; then
+    SELECTED_MODEL="$MODEL_THINKING"
+    MODE_NAME="Thinking Mode [Q8]"
+fi
+
 # 9. FALLBACK CHECK
 if [ ! -f "$SELECTED_MODEL" ]; then
-    if [ -f "$MODEL_HIGH" ]; then SELECTED_MODEL="$MODEL_HIGH"; MODE_NAME="Backup [Q8]";
+    if [ "$MODEL_PROFILE_REQUEST" = "thinking" ] && [ -f "$MODEL_HIGH" ]; then
+        SELECTED_MODEL="$MODEL_HIGH"
+        MODE_NAME="Backup [Q8]"
+    elif [ -f "$MODEL_HIGH" ]; then SELECTED_MODEL="$MODEL_HIGH"; MODE_NAME="Backup [Q8]";
     elif [ -f "$MODEL_LOW" ]; then SELECTED_MODEL="$MODEL_LOW"; MODE_NAME="Backup [Q4]";
     else
         echo ""

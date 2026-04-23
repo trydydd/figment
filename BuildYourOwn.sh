@@ -47,6 +47,7 @@ if [[ -z "$LLAMA_CPP_CUDA_PACKAGE_URL" && -n "$LLAMA_CPP_RUNTIME_PLATFORM" ]]; t
 fi
 Q8_URL="${Q8_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Instruct-2507-abliterated-GGUF/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf}"
 Q4_URL="${Q4_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Instruct-2507-abliterated-GGUF/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf}"
+THINKING_Q8_URL="${THINKING_Q8_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Thinking-2507-abliterated-GGUF/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf?download=true}"
 
 usage() {
   cat <<'EOF'
@@ -78,6 +79,7 @@ Environment overrides:
   ROTORQUANT_LLAMA_CPP_COMMIT
   Q8_URL
   Q4_URL
+  THINKING_Q8_URL
 
 Examples:
   ./BuildYourOwn.sh --target /media/$USER/facts
@@ -272,10 +274,15 @@ download_or_copy_local_asset() {
   local output="$2"
   local size_hint="$3"
   local filename
+  local url_filename
 
-  filename="$(basename -- "$url")"
+  filename="$(basename -- "$output")"
+  url_filename="$(basename -- "${url%%\?*}")"
 
   if ! copy_from_local_downloads_if_present "$filename" "$output"; then
+    if [[ "$url_filename" != "$filename" ]] && copy_from_local_downloads_if_present "$url_filename" "$output"; then
+      return 0
+    fi
     download_file "$url" "$output" "$size_hint"
   fi
 }
@@ -446,6 +453,11 @@ download_required_assets() {
     "$system_dir/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf" \
     "(~2.3GB)"
 
+  download_or_copy_local_asset \
+    "$THINKING_Q8_URL" \
+    "$system_dir/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf" \
+    "(~4.0GB)"
+
 }
 
 print_summary() {
@@ -466,6 +478,7 @@ Installed files:
 - $accelerated_summary
 - Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf
 - Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf
+- Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf
 
 Pinned default runtime package source:
 - repo: $LLAMA_CPP_RUNTIME_REPO

@@ -92,6 +92,7 @@ If it finds:
 - the runtime package archives named by `LLAMA_CPP_CPU_PACKAGE_URL` / `LLAMA_CPP_CUDA_PACKAGE_URL`
 - `Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf`
 - `Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf`
+- `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf`
 
 it reuses them instead of downloading again.
 
@@ -141,7 +142,8 @@ The Linux launcher accepts optional overrides:
 LLMSTICK_KV_PROFILE=compatibility|memory-saver|max-compression|auto
 LLMSTICK_KV_ROTATION=planar3|iso3
 LLMSTICK_CTX_SIZE=8192
-./LinuxLaunch.sh
+LLMSTICK_MODEL_PROFILE=auto|thinking
+./LinuxLaunch.sh [--thinking]
 ```
 
 ## Scope

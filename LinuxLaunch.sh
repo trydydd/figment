@@ -26,8 +26,8 @@ ENGINE_SERVER=""
 resolve_binary() {
     local root="$1"
     local name="$2"
-    local candidate=""
-    local -a candidates=()
+    local candidate
+    local -a search_roots=()
 
     if [ -x "$root/bin/$name" ]; then
         printf '%s\n' "$root/bin/$name"
@@ -40,17 +40,17 @@ resolve_binary() {
     fi
 
     shopt -s nullglob
-    candidates=(
-        "$root"/*/bin/"$name"
-        "$root"/*/"$name"
-        "$root"/*/*/bin/"$name"
-        "$root"/*/*/"$name"
-    )
+    search_roots=("$root" "$root"/* "$root"/*/*)
     shopt -u nullglob
 
-    for candidate in "${candidates[@]}"; do
-        if [ -x "$candidate" ]; then
-            printf '%s\n' "$candidate"
+    for candidate in "${search_roots[@]}"; do
+        if [ -x "$candidate/bin/$name" ]; then
+            printf '%s\n' "$candidate/bin/$name"
+            return 0
+        fi
+
+        if [ -x "$candidate/$name" ]; then
+            printf '%s\n' "$candidate/$name"
             return 0
         fi
     done

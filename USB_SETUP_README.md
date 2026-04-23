@@ -8,7 +8,7 @@ This guide shows how to:
 ## 1) Open a terminal in this repo
 
 ```bash
-cd /path/to/llmstick
+cd /path/to/this/repo
 ```
 
 Make sure the script is executable:

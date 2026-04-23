@@ -303,15 +303,17 @@ extract_tarball() {
     tar_type="${tar_listing%% *}"
     tar_type="${tar_type:0:1}"
     if [[ "$tar_type" == "l" ]]; then
-      tar_link_path="$(awk '{print $6}' <<<"$tar_listing")"
-      tar_link_target="$(awk '{print $8}' <<<"$tar_listing")"
+      tar_link_path="$(sed -E 's/^([^[:space:]]+[[:space:]]+){5}//' <<<"$tar_listing")"
+      [[ "$tar_link_path" == *" -> "* ]] || fail "Unsafe archive entry in $(basename -- "$archive"): malformed symbolic link"
+      tar_link_target="${tar_link_path#* -> }"
+      tar_link_path="${tar_link_path% -> *}"
       validate_archive_path "$tar_link_path"
       [[ -n "$tar_link_target" ]] || fail "Unsafe archive entry in $(basename -- "$archive"): malformed symbolic link"
       [[ "$tar_link_target" == /* ]] && fail "Unsafe archive entry in $(basename -- "$archive"): absolute symbolic links are not allowed"
       validate_archive_path "$tar_link_target"
       link_parent="$(dirname -- "$tar_link_path")"
       canonical_link_target="$(realpath -m "$canonical_destination/$link_parent/$tar_link_target")"
-      [[ "$canonical_link_target" == "$canonical_destination" || "$canonical_link_target" == "$canonical_destination/"* ]] || fail "Unsafe archive entry in $(basename -- "$archive"): symbolic link escapes destination"
+      [[ "$canonical_link_target" == "$canonical_destination/"* ]] || fail "Unsafe archive entry in $(basename -- "$archive"): symbolic link escapes destination"
     elif [[ "$tar_type" == "h" ]]; then
       fail "Unsafe archive entry in $(basename -- "$archive"): hard links are not allowed"
     fi

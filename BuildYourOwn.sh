@@ -299,6 +299,10 @@ extract_tarball() {
   local canonical_destination=""
   local extracted_path=""
   local canonical_extracted_path=""
+  local copy_source=""
+  local wrapper_dir=""
+  local wrapper_name=""
+  local entry_count=0
   local -a tar_parts=()
 
   require_cmd tar
@@ -355,10 +359,23 @@ extract_tarball() {
     [[ "$canonical_extracted_path" == "$staging_dir" || "$canonical_extracted_path" == "$staging_dir/"* ]] || fail "Unsafe extracted path from $(basename -- "$archive"): $extracted_path"
   done < <(find "$staging_dir" -mindepth 1 -print)
 
+  copy_source="$staging_dir"
+  while IFS= read -r extracted_path; do
+    entry_count=$((entry_count + 1))
+    wrapper_dir="$extracted_path"
+  done < <(find "$staging_dir" -mindepth 1 -maxdepth 1 -print)
+
+  if (( entry_count == 1 )) && [[ -d "$wrapper_dir" ]]; then
+    wrapper_name="$(basename -- "$wrapper_dir")"
+    if [[ "$wrapper_name" == llama-* ]]; then
+      copy_source="$wrapper_dir"
+    fi
+  fi
+
   rm -rf "$destination"
   mkdir -p "$destination"
   rsync_error_log="$(mktemp "$temp_root/rsync.XXXXXX")"
-  if ! rsync -aL "$staging_dir"/ "$destination"/ 2>"$rsync_error_log"; then
+  if ! rsync -aL "$copy_source"/ "$destination"/ 2>"$rsync_error_log"; then
     rsync_error_message="$(head -n 1 "$rsync_error_log" | tr '\r\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
     rm -f "$rsync_error_log"
     rm -rf "$staging_dir"

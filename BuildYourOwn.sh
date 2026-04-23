@@ -209,6 +209,8 @@ download_file() {
   local url="$1"
   local output="$2"
   local size_hint="$3"
+  local attempts=5
+  local attempt=1
 
   require_cmd curl
   mkdir -p "$(dirname -- "$output")"
@@ -221,7 +223,19 @@ download_file() {
 
   log "Downloading $(basename -- "$output") ${size_hint}"
   # -C - resumes partial downloads; important for multi-GB model files.
-  curl -fL --progress-bar -C - "$url" -o "$output"
+  while (( attempt <= attempts )); do
+    if curl -fL --progress-bar -C - "$url" -o "$output"; then
+      return 0
+    fi
+
+    if (( attempt == attempts )); then
+      fail "Download failed after $attempts attempts: $(basename -- "$output")"
+    fi
+
+    log "Retrying download ($(basename -- "$output"), attempt $((attempt + 1))/$attempts)"
+    sleep "$attempt"
+    ((attempt++))
+  done
 }
 
 copy_from_local_downloads_if_present() {

@@ -163,6 +163,11 @@ detect_supported_cache_types() {
     RUNTIME_HELP_OUTPUT="$(run_command_with_binary_libs "$candidate" --help 2>&1 || true)"
     SUPPORTED_CACHE_TYPES="$(
         printf '%s\n' "$RUNTIME_HELP_OUTPUT" | awk '
+            BEGIN {
+                cache_type_pattern = "^(f16|f32|bf16|q[0-9]+(_[a-z0-9]+)*|iq[0-9]+(_[a-z0-9]+)*|(planar|turbo|iso)[0-9]+)$"
+            }
+
+            # Extract cache-type tokens from runtime help while ignoring surrounding punctuation.
             function emit_tokens(line, normalized, count, i, token) {
                 normalized = line
                 gsub(/[][()]/, " ", normalized)
@@ -171,8 +176,8 @@ detect_supported_cache_types() {
                 count = split(normalized, parts, " ")
                 for (i = 1; i <= count; i++) {
                     token = parts[i]
-                    if (token ~ /^(f16|f32|bf16|q[0-9]+(_[a-z0-9]+)*|iq[0-9]+(_[a-z0-9]+)*|(planar|turbo|iso)[0-9]+)$/ && !seen[token]++) {
-                        ordered = ordered (ordered ? " " : "") token
+                    if (token ~ cache_type_pattern && !seen[token]++) {
+                        supported_types = supported_types (supported_types ? " " : "") token
                     }
                 }
             }
@@ -191,7 +196,7 @@ detect_supported_cache_types() {
             }
 
             END {
-                print ordered
+                print supported_types
             }
         '
     )"

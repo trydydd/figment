@@ -360,12 +360,9 @@ extract_tarball() {
   done < <(find "$staging_dir" -mindepth 1 -print)
 
   copy_source="$staging_dir"
-  mapfile -t top_level_entries < <(find "$staging_dir" -mindepth 1 -maxdepth 1 -print | head -n 2)
-  if (( ${#top_level_entries[@]} == 1 )); then
+  mapfile -t top_level_entries < <(find "$staging_dir" -mindepth 1 -maxdepth 1 -print)
+  if (( ${#top_level_entries[@]} == 1 )) && [[ -d "${top_level_entries[0]}" ]]; then
     wrapper_dir="${top_level_entries[0]}"
-  fi
-
-  if [[ -n "$wrapper_dir" && -d "$wrapper_dir" ]]; then
     wrapper_name="$(basename -- "$wrapper_dir")"
     if [[ "$wrapper_name" == llama-* ]]; then
       copy_source="$wrapper_dir"

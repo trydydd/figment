@@ -128,7 +128,12 @@ build_rotorquant_runtime() {
   local -a extra_cmake_args=("$@")
   local src_dir="$TMPDIR/rotorquant-src"
   local build_dir="$TMPDIR/rotorquant-build"
+  local staging_dir="$TMPDIR/rotorquant-staging"
   local stamp_file="$destination/.rotorquant-build-commit"
+  local rsync_error_log=""
+  local rsync_error_message=""
+
+  require_cmd rsync
 
   # Skip if already built at the same commit.
   if [[ -f "$stamp_file" ]] && [[ "$(cat "$stamp_file" 2>/dev/null)" == "$ROTORQUANT_LLAMA_CPP_COMMIT" ]]; then
@@ -150,7 +155,11 @@ build_rotorquant_runtime() {
   git -C "$src_dir" checkout "$ROTORQUANT_LLAMA_CPP_COMMIT" || return 1
 
   mkdir -p "$build_dir"
+  rm -rf "$staging_dir"
+  mkdir -p "$staging_dir"
 
+  # Install to a host-side staging directory so cmake does not try to create
+  # symlinks directly on the USB target filesystem (exFAT etc. forbid symlinks).
   log "Configuring rotorquant llama.cpp build..."
   cmake \
     -B "$build_dir" \
@@ -158,7 +167,7 @@ build_rotorquant_runtime() {
     -DCMAKE_BUILD_TYPE=Release \
     -DLLAMA_BUILD_TESTS=OFF \
     -DLLAMA_BUILD_EXAMPLES=ON \
-    -DCMAKE_INSTALL_PREFIX="$destination" \
+    -DCMAKE_INSTALL_PREFIX="$staging_dir" \
     "${extra_cmake_args[@]}" || return 1
 
   local nproc_count
@@ -166,8 +175,24 @@ build_rotorquant_runtime() {
   log "Compiling llama.cpp (using $nproc_count jobs — this may take several minutes)..."
   cmake --build "$build_dir" --config Release -j"$nproc_count" || return 1
 
-  log "Installing rotorquant runtime to $destination..."
-  cmake --install "$build_dir" || return 1
+  log "Installing rotorquant runtime to host staging directory..."
+  cmake --install "$build_dir" || { rm -rf "$staging_dir"; return 1; }
+
+  # Copy from the host staging directory to the final destination,
+  # dereferencing symlinks so the target filesystem never sees them.
+  log "Copying rotorquant runtime to $destination (symlinks dereferenced)..."
+  rm -rf "$destination"
+  mkdir -p "$destination"
+  rsync_error_log="$(mktemp "$TMPDIR/rsync.XXXXXX")"
+  if ! rsync -aL "$staging_dir"/ "$destination"/ 2>"$rsync_error_log"; then
+    rsync_error_message="$(head -n 1 "$rsync_error_log" | tr '\r\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+    rm -f "$rsync_error_log"
+    rm -rf "$staging_dir"
+    log "ERROR: rsync from staging to $destination failed${rsync_error_message:+: $rsync_error_message}"
+    return 1
+  fi
+  rm -f "$rsync_error_log"
+  rm -rf "$staging_dir"
 
   printf '%s\n' "$ROTORQUANT_LLAMA_CPP_COMMIT" > "$stamp_file"
   return 0

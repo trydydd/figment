@@ -22,6 +22,10 @@ LLAMA_CPP_RUNTIME_VERSION="${LLAMA_CPP_RUNTIME_VERSION:-b8893}"
 ROTORQUANT_LLAMA_CPP_REPO="${ROTORQUANT_LLAMA_CPP_REPO:-johndpope/llama-cpp-turboquant}"
 ROTORQUANT_LLAMA_CPP_BRANCH="${ROTORQUANT_LLAMA_CPP_BRANCH:-feature/planarquant-kv-cache}"
 ROTORQUANT_LLAMA_CPP_COMMIT="${ROTORQUANT_LLAMA_CPP_COMMIT:-20efe75}"
+# Shallow clone depth when fetching the rotorquant fork; enough to reach the pinned commit.
+ROTORQUANT_CLONE_DEPTH="${ROTORQUANT_CLONE_DEPTH:-50}"
+# Fallback parallel job count if nproc is unavailable.
+DEFAULT_BUILD_JOBS="${DEFAULT_BUILD_JOBS:-2}"
 # Set to "false" to skip the source build and download a pre-built runtime instead.
 ROTORQUANT_BUILD_RUNTIME="${ROTORQUANT_BUILD_RUNTIME:-true}"
 LLAMA_CPP_RUNTIME_ARCH="${LLAMA_CPP_RUNTIME_ARCH:-$(uname -m 2>/dev/null || printf 'unknown')}"
@@ -80,6 +84,7 @@ Environment overrides:
   ROTORQUANT_LLAMA_CPP_REPO
   ROTORQUANT_LLAMA_CPP_BRANCH
   ROTORQUANT_LLAMA_CPP_COMMIT
+  ROTORQUANT_CLONE_DEPTH        Shallow clone depth when fetching rotorquant fork (default: 50)
   ROTORQUANT_BUILD_RUNTIME    Set to "false" to skip source build and use pre-built runtime
   Q8_URL
   Q4_URL
@@ -135,7 +140,7 @@ build_rotorquant_runtime() {
 
   if [[ ! -d "$src_dir/.git" ]]; then
     log "Cloning $ROTORQUANT_LLAMA_CPP_REPO (branch: $ROTORQUANT_LLAMA_CPP_BRANCH)"
-    git clone --depth 50 \
+    git clone --depth "$ROTORQUANT_CLONE_DEPTH" \
       --branch "$ROTORQUANT_LLAMA_CPP_BRANCH" \
       "https://github.com/$ROTORQUANT_LLAMA_CPP_REPO.git" \
       "$src_dir" || return 1
@@ -157,7 +162,7 @@ build_rotorquant_runtime() {
     "${extra_cmake_args[@]}" || return 1
 
   local nproc_count
-  nproc_count="$(nproc 2>/dev/null || echo 2)"
+  nproc_count="$(nproc 2>/dev/null || echo "${DEFAULT_BUILD_JOBS:-2}")"
   log "Compiling llama.cpp (using $nproc_count jobs — this may take several minutes)..."
   cmake --build "$build_dir" --config Release -j"$nproc_count" || return 1
 

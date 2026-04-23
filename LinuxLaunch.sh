@@ -277,12 +277,20 @@ else
     MODE_NAME="Efficiency Mode [Q4]"
 fi
 
+DEFAULT_MODEL="$SELECTED_MODEL"
+DEFAULT_MODE_NAME="$MODE_NAME"
+
 if [ "$MODEL_PROFILE_REQUEST" = "thinking" ]; then
     if [ -f "$MODEL_THINKING" ]; then
         SELECTED_MODEL="$MODEL_THINKING"
         MODE_NAME="Thinking Mode [Q8]"
     else
-        MODE_NAME="$MODE_NAME [Thinking unavailable]"
+        SELECTED_MODEL="$DEFAULT_MODEL"
+        case "$DEFAULT_MODE_NAME" in
+            "High Performance [Q8]") MODE_NAME="Fallback from Thinking [Q8]" ;;
+            "Efficiency Mode [Q4]") MODE_NAME="Fallback from Thinking [Q4]" ;;
+            *) MODE_NAME="$DEFAULT_MODE_NAME" ;;
+        esac
     fi
 fi
 

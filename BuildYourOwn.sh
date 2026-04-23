@@ -366,6 +366,7 @@ extract_tarball() {
       wrapper_dir="$extracted_path"
     else
       wrapper_dir=""
+      break
     fi
   done < <(find "$staging_dir" -mindepth 1 -maxdepth 1 -print)
 

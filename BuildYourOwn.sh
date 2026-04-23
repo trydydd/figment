@@ -270,6 +270,10 @@ extract_tarball() {
   local tar_part=""
   local tar_listing=""
   local tar_type=""
+  local tar_link_path=""
+  local tar_link_target=""
+  local link_parent=""
+  local canonical_link_target=""
   local canonical_root=""
   local canonical_destination=""
   local extracted_path=""
@@ -284,18 +288,37 @@ extract_tarball() {
   canonical_destination="$(realpath -m "$destination")"
   [[ "$canonical_destination" == "$canonical_root/"* ]] || fail "Refusing to extract archive outside $canonical_root: $destination"
 
+  validate_archive_path() {
+    local path="$1"
+    [[ -n "$path" ]] || fail "Unsafe archive path in $(basename -- "$archive"): empty path"
+    [[ "$path" == /* ]] && fail "Unsafe archive path in $(basename -- "$archive"): $path"
+    IFS='/' read -r -a tar_parts <<< "$path"
+    for tar_part in "${tar_parts[@]}"; do
+      [[ "$tar_part" == ".." ]] && fail "Unsafe archive path in $(basename -- "$archive"): $path"
+    done
+    return 0
+  }
+
   while IFS= read -r tar_listing; do
     tar_type="${tar_listing%% *}"
     tar_type="${tar_type:0:1}"
-    [[ "$tar_type" == "l" || "$tar_type" == "h" ]] && fail "Unsafe archive entry in $(basename -- "$archive"): link entries are not allowed"
+    if [[ "$tar_type" == "l" ]]; then
+      tar_link_path="$(awk '{print $6}' <<<"$tar_listing")"
+      tar_link_target="$(awk '{print $8}' <<<"$tar_listing")"
+      validate_archive_path "$tar_link_path"
+      [[ -n "$tar_link_target" ]] || fail "Unsafe archive entry in $(basename -- "$archive"): malformed symbolic link"
+      [[ "$tar_link_target" == /* ]] && fail "Unsafe archive entry in $(basename -- "$archive"): absolute symbolic links are not allowed"
+      validate_archive_path "$tar_link_target"
+      link_parent="$(dirname -- "$tar_link_path")"
+      canonical_link_target="$(realpath -m "$canonical_destination/$link_parent/$tar_link_target")"
+      [[ "$canonical_link_target" == "$canonical_destination" || "$canonical_link_target" == "$canonical_destination/"* ]] || fail "Unsafe archive entry in $(basename -- "$archive"): symbolic link escapes destination"
+    elif [[ "$tar_type" == "h" ]]; then
+      fail "Unsafe archive entry in $(basename -- "$archive"): hard links are not allowed"
+    fi
   done < <(tar -tvzf "$archive")
 
   while IFS= read -r tar_entry; do
-    [[ "$tar_entry" == /* ]] && fail "Unsafe archive path in $(basename -- "$archive"): $tar_entry"
-    IFS='/' read -r -a tar_parts <<< "$tar_entry"
-    for tar_part in "${tar_parts[@]}"; do
-      [[ "$tar_part" == ".." ]] && fail "Unsafe archive path in $(basename -- "$archive"): $tar_entry"
-    done
+    validate_archive_path "$tar_entry"
   done < <(tar -tzf "$archive")
 
   rm -rf "$destination"

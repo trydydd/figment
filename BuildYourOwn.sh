@@ -266,6 +266,7 @@ download_or_copy_local_asset() {
 extract_tarball() {
   local archive="$1"
   local destination="$2"
+  local staging_dir=""
   local tar_entry=""
   local tar_part=""
   local tar_listing=""
@@ -282,6 +283,7 @@ extract_tarball() {
 
   require_cmd tar
   require_cmd realpath
+  require_cmd rsync
   [[ -n "$destination" ]] || fail "Refusing to extract archive to an empty destination"
   [[ "$destination" != "/" ]] || fail "Refusing to extract archive to /"
   canonical_root="$(realpath -m "$TARGET_DIR/.system")"
@@ -323,14 +325,28 @@ extract_tarball() {
     validate_archive_path "$tar_entry"
   done < <(tar -tzf "$archive")
 
+  staging_dir="$(mktemp -d "$TMPDIR/extract.XXXXXX")"
+  tar -xzf "$archive" -C "$staging_dir"
+
+  while IFS= read -r extracted_path; do
+    canonical_extracted_path="$(realpath -m "$extracted_path")"
+    [[ "$canonical_extracted_path" == "$staging_dir" || "$canonical_extracted_path" == "$staging_dir/"* ]] || fail "Unsafe extracted path from $(basename -- "$archive"): $extracted_path"
+  done < <(find "$staging_dir" -mindepth 1 -print)
+
   rm -rf "$destination"
   mkdir -p "$destination"
-  tar -xzf "$archive" -C "$destination"
+  rsync -aL "$staging_dir"/ "$destination"/
 
   while IFS= read -r extracted_path; do
     canonical_extracted_path="$(realpath -m "$extracted_path")"
     [[ "$canonical_extracted_path" == "$canonical_destination" || "$canonical_extracted_path" == "$canonical_destination/"* ]] || fail "Unsafe extracted path from $(basename -- "$archive"): $extracted_path"
   done < <(find "$destination" -mindepth 1 -print)
+
+  if find "$destination" -type l -print -quit | grep -q .; then
+    fail "Unsafe extracted path from $(basename -- "$archive"): symbolic links remain after installation"
+  fi
+
+  return 0
 }
 
 install_runtime_package() {

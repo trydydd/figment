@@ -164,10 +164,11 @@ detect_supported_cache_types() {
     SUPPORTED_CACHE_TYPES="$(
         printf '%s\n' "$RUNTIME_HELP_OUTPUT" | awk '
             BEGIN {
+                # Match float cache types, standard llama.cpp quantized cache types, and rotorquant cache types.
                 cache_type_pattern = "^(f16|f32|bf16|q[0-9]+(_[a-z0-9]+)*|iq[0-9]+(_[a-z0-9]+)*|(planar|turbo|iso)[0-9]+)$"
             }
 
-            # Extract cache-type tokens from runtime help while ignoring surrounding punctuation.
+            # Extract cache-type tokens from one help-output line, stripping punctuation and deduplicating matches.
             function emit_tokens(line, normalized, count, i, token) {
                 normalized = line
                 gsub(/[][()]/, " ", normalized)

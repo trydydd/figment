@@ -364,7 +364,7 @@ extract_tarball() {
   if (( ${#top_level_entries[@]} == 1 )) && [[ -d "${top_level_entries[0]}" ]]; then
     wrapper_dir="${top_level_entries[0]}"
     wrapper_name="$(basename -- "$wrapper_dir")"
-    if [[ "$wrapper_name" == llama-* ]]; then
+    if [[ "$wrapper_name" == "llama-"* ]]; then
       copy_source="$wrapper_dir"
     fi
   fi

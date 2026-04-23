@@ -335,7 +335,10 @@ extract_tarball() {
 
   rm -rf "$destination"
   mkdir -p "$destination"
-  rsync -aL "$staging_dir"/ "$destination"/
+  if ! rsync -aL "$staging_dir"/ "$destination"/; then
+    rm -rf "$staging_dir"
+    fail "Failed to copy runtime from staging directory to $destination"
+  fi
 
   while IFS= read -r extracted_path; do
     canonical_extracted_path="$(realpath -m "$extracted_path")"
@@ -343,9 +346,11 @@ extract_tarball() {
   done < <(find "$destination" -mindepth 1 -print)
 
   if find "$destination" -type l -print -quit | grep -q .; then
-    fail "Unsafe extracted path from $(basename -- "$archive"): symbolic links remain after installation"
+    rm -rf "$staging_dir"
+    fail "Failed to dereference all symbolic links during installation: $destination"
   fi
 
+  rm -rf "$staging_dir"
   return 0
 }
 

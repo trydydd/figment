@@ -4,7 +4,7 @@
   <br>
 </h1>
 
-<h4 align="center">Offline, uncensored, zero-log AI on a Linux flash drive.</h4>
+<h4 align="center">Figmentum es</h4>
 
 <p align="center">
     <a href="https://github.com/trydydd/llmstick/commits/main">

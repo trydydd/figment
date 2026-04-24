@@ -1,88 +1,117 @@
-# Figment
+<h1 align="center">
+  <br>
+  Figment
+  <br>
+</h1>
 
-**Offline, uncensored, zero-log AI on a Linux flash drive.**
+<h4 align="center">Offline, uncensored, zero-log AI on a Linux flash drive.</h4>
 
-No internet. No installation. No accounts. Plug in, double-click, ask anything.
+<p align="center">
+    <a href="https://github.com/trydydd/llmstick/commits/main">
+    <img src="https://img.shields.io/github/last-commit/trydydd/llmstick.svg?style=flat-square&logo=github&logoColor=white"
+         alt="GitHub last commit">
+    </a>
+    <a href="https://github.com/trydydd/llmstick/issues">
+    <img src="https://img.shields.io/github/issues-raw/trydydd/llmstick.svg?style=flat-square&logo=github&logoColor=white"
+         alt="GitHub issues">
+    </a>
+    <a href="https://github.com/trydydd/llmstick/pulls">
+    <img src="https://img.shields.io/github/issues-pr-raw/trydydd/llmstick.svg?style=flat-square&logo=github&logoColor=white"
+         alt="GitHub pull requests">
+    </a>
+</p>
 
-This project is derived from and inspired by the original [OSE FACTS project](https://github.com/WEAREOSE/facts), which served as the source, starting point, and inspiration for this work.
-
-I've stripped Windows and Mac support to reduce scope for features that are in-flight. For those operating systems check the original project.
+<p align="center">
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#requirements">Requirements</a> •
+  <a href="#how-it-works">How It Works</a> •
+  <a href="#flags--overrides">Flags & Overrides</a> •
+  <a href="#file-structure">File Structure</a> •
+  <a href="#troubleshooting">Troubleshooting</a> •
+  <a href="#tech-stack">Tech Stack</a> •
+  <a href="#credits">Credits</a> •
+  <a href="#support">Support</a>
+</p>
 
 ---
 
-## What Is This?
+<table>
+<tr>
+<td>
 
-This is the complete, open-source build for the **Figment** AI flash drive. Everything you need to build your own is right here — the launcher scripts, the guide files, and the folder structure.
+**Figment** is a complete, open-source build for an AI flash drive that runs **fully offline** — no internet, no installation, no accounts. Plug in the drive, run the launcher, and start asking questions. Nothing is ever saved.
+
+It ships a self-contained `llama.cpp` runtime alongside abliterated [Qwen3](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF) models, auto-selects the best model for your available RAM, and falls back cleanly from GPU to CPU when needed.
+
+Everything you need to build your own is right here — the launcher scripts, the builder, and the folder structure.
+
+> This project is derived from and inspired by the original [OSE FACTS project](https://github.com/WEAREOSE/facts). Windows and Mac support has been stripped to reduce scope while new features are in-flight. For those platforms check the original project.
+
+</td>
+</tr>
+</table>
 
 ## Quick Start
 
-### Build Your Own
+##### Build your own drive:
 
-1. Get a USB flash drive (16GB minimum, 32GB+ recommended)
-2. Format it as exFAT
-3. Clone or download this repo onto the drive
-4. Run the setup script:
+1. Get a USB flash drive (16 GB minimum, 32 GB+ recommended)
+2. Clone or download this repo
+3. Run the setup script, pointing it at your mounted drive:
 
    ```bash
    ./BuildYourOwn.sh --target /path/to/usb/mount
    ```
 
-5. Or manually unpack the required runtime packages into the `.system/` folder (see below)
-6. Run `LinuxLaunch.sh`
+4. Run `LinuxLaunch.sh` from the drive
 
-### Required Downloads (Not Included)
+> [!TIP]
+> Run `./BuildYourOwn.sh --help` for the full list of options, including `--format-device` to format the drive as exFAT in one step.
+
+##### Required downloads (fetched automatically by the builder):
 
 | File | Size | Source |
 |------|------|--------|
-| `llama-<release>-bin-ubuntu-<arch>.tar.gz` | varies | Pinned upstream `ggml-org/llama.cpp` release asset (`runtime-cpu/`) |
-| `llama-<release>-bin-ubuntu-vulkan-<arch>.tar.gz` | varies | Pinned upstream accelerated Linux release asset (`runtime-cuda/`, Vulkan by default) |
-| `Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf` | ~4.0GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
-| `Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf` | ~2.3GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
-| `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf` | ~4.0GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Thinking-2507-abliterated-GGUF) |
-| `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf` | ~18GB | [HuggingFace](https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/tree/main) |
+| `llama-<release>-bin-ubuntu-<arch>.tar.gz` | varies | Pinned `ggml-org/llama.cpp` release → `runtime-cpu/` |
+| `llama-<release>-bin-ubuntu-vulkan-<arch>.tar.gz` | varies | Pinned accelerated Linux release → `runtime-cuda/` |
+| `Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf` | ~4.0 GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
+| `Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf` | ~2.3 GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
+| `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf` | ~4.0 GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Thinking-2507-abliterated-GGUF) |
+| `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf` | ~18 GB | [HuggingFace](https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/tree/main) |
 
-The builder defaults to pinned upstream `llama.cpp` release URLs, but you can override them with:
+> [!NOTE]
+> The builder defaults to pinned upstream `llama.cpp` release URLs. Override `LLAMA_CPP_CPU_PACKAGE_URL` / `LLAMA_CPP_CUDA_PACKAGE_URL` to reuse an existing rotorquant-capable fork or custom build.
 
-```bash
-LLAMA_CPP_CPU_PACKAGE_URL=...
-LLAMA_CPP_CUDA_PACKAGE_URL=...
-./BuildYourOwn.sh --target /path/to/usb
-```
+## Requirements
 
-That makes it easy to reuse existing llama.cpp forks or build repos that already publish rotorquant-capable binaries.
-
-## Hardware Requirements
-
-| | Minimum | Recommended |
-|---|---------|-------------|
-| **RAM** | 8GB | 16GB+ |
-| **Linux** | Any modern x86_64 or ARM64 | NVIDIA GPU for acceleration |
-| **Drive** | USB 2.0 works | USB 3.0 for faster load times |
+|                | Minimum                    | Recommended                        |
+| -------------- | -------------------------- | ---------------------------------- |
+| **RAM**        | 8 GB                       | 16 GB+                             |
+| **OS**         | Any modern Linux x86_64 or ARM64 | NVIDIA GPU for acceleration  |
+| **Drive**      | USB 2.0                    | USB 3.0 for faster model load times |
 
 ## How It Works
 
 1. Plug in the drive
 2. Run `LinuxLaunch.sh`
 3. The launcher kills any ghost processes from previous sessions
-4. All chat history is wiped (zero-log privacy — nothing is ever saved)
-5. Your RAM is detected and the best model is selected:
-   - 16GB+ → Q8 (high quality)
-   - 8-15GB → Q4 (efficiency mode)
-   - `./LinuxLaunch.sh --thinking` or `FIGMENT_MODEL_PROFILE=thinking ./LinuxLaunch.sh` → Thinking Q8 when installed, otherwise fall back to the normal auto-selected model
-   - `./LinuxLaunch.sh --coder` or `FIGMENT_MODEL_PROFILE=coder ./LinuxLaunch.sh` → Qwen3 Coder Q4_K_M when installed, otherwise fall back to the normal auto-selected model
-6. GPU is detected (NVIDIA on Linux) and the best runtime package is selected:
+4. All chat history is wiped — **nothing is ever saved**
+5. Available RAM is detected and the best model is selected automatically:
+   - 16 GB+ → Q8 (high quality)
+   - 8–15 GB → Q4 (efficiency mode)
+6. GPU is detected and the best runtime package is chosen:
    - `runtime-cuda/` when a CUDA-capable NVIDIA stack is available
    - `runtime-cpu/` otherwise
-7. A KV-cache profile is selected:
-   - `auto` (default) → equivalent to `memory-saver`; prefer rotorquant `turbo3/f16`; if the selected runtime does not advertise rotorquant cache types, use a supported quantized fallback instead
-   - `compatibility` via `FIGMENT_KV_PROFILE=compatibility ./LinuxLaunch.sh` → `f16/f16`
-   - `memory-saver` via `FIGMENT_KV_PROFILE=memory-saver ./LinuxLaunch.sh` → prefer `turbo3/f16` (or `planar3/f16` / `iso3/f16` when `FIGMENT_KV_ROTATION` is overridden), otherwise use a supported quantized fallback
-   - `max-compression` via `FIGMENT_KV_PROFILE=max-compression ./LinuxLaunch.sh` → prefer `turbo3/turbo3` (or `planar3/planar3` / `iso3/iso3` when `FIGMENT_KV_ROTATION` is overridden), otherwise use a supported quantized fallback
-8. If the runtime still rejects the requested cache profile, the launcher retries with `f16/f16`
-9. Model loads into memory (10-60 seconds)
+7. A KV-cache profile is applied:
+   - `auto` (default) → equivalent to `memory-saver`; prefer rotorquant `turbo3/f16`; falls back to a supported quantized type if the runtime does not advertise rotorquant cache types
+   - `compatibility` → `f16/f16` (safest, works everywhere)
+   - `memory-saver` → prefer `turbo3/f16`; falls back to a supported quantized type
+   - `max-compression` → prefer `turbo3/turbo3`; falls back to a supported quantized type
+8. If the runtime rejects the requested cache profile, the launcher retries automatically with `f16/f16`
+9. Model loads into RAM (10–60 seconds)
 10. `>` prompt appears — start asking questions
 
-## LinuxLaunch.sh Flags and Overrides
+## Flags & Overrides
 
 ```bash
 ./LinuxLaunch.sh --thinking
@@ -94,68 +123,63 @@ FIGMENT_KV_ROTATION=turbo3|planar3|iso3 ./LinuxLaunch.sh
 FIGMENT_CTX_SIZE=8192 ./LinuxLaunch.sh
 ```
 
-- `--thinking` prefers `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf`.
-- `--coder` prefers `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf`.
-- `FIGMENT_MODEL_PROFILE=thinking|coder` provides the same model overrides without adding CLI flags.
-- `FIGMENT_KV_PROFILE=compatibility` forces the safest `f16/f16` cache mode.
-- `FIGMENT_KV_PROFILE=memory-saver` prefers a mixed rotorquant profile (`turbo3/f16` by default).
-- `FIGMENT_KV_PROFILE=max-compression` prefers the smallest rotorquant profile (`turbo3/turbo3` by default).
-- `FIGMENT_KV_ROTATION` changes which rotorquant family `memory-saver` and `max-compression` try first.
-- `FIGMENT_CTX_SIZE` overrides the default 8192-token context window.
-- If a requested Thinking or Coder model is missing, the launcher falls back to the normal RAM-based auto selection.
+| Flag / Variable | Effect |
+|---|---|
+| `--thinking` | Prefers `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf`; falls back to the RAM-selected model if missing |
+| `--coder` | Prefers `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf`; falls back to the RAM-selected model if missing |
+| `FIGMENT_MODEL_PROFILE=thinking\|coder` | Same as `--thinking` / `--coder` without CLI flags |
+| `FIGMENT_KV_PROFILE=compatibility` | Forces `f16/f16` — the safest cache mode |
+| `FIGMENT_KV_PROFILE=memory-saver` | Prefers mixed rotorquant profile (`turbo3/f16` by default) |
+| `FIGMENT_KV_PROFILE=max-compression` | Prefers smallest rotorquant profile (`turbo3/turbo3` by default) |
+| `FIGMENT_KV_ROTATION=planar3\|iso3` | Changes which rotorquant family `memory-saver` and `max-compression` try first |
+| `FIGMENT_CTX_SIZE=N` | Overrides the default 8192-token context window |
 
-## What's In the Box
+## File Structure
 
 ```
 Figment/
 ├── LinuxLaunch.sh              # Linux launcher
+├── BuildYourOwn.sh             # Automated USB builder
 ├── LICENSES/
 │   ├── LLAMA_CPP_LICENSE.txt   # MIT License (llama.cpp)
 │   └── MODEL LICENSES/
 │       └── QWEN_LICENSE.txt    # Apache 2.0 (Qwen)
-└── .system/                    # Hidden folder
-   ├── runtime-cpu/             # CPU llama.cpp package (llama-cli + llama-server)
-   ├── runtime-cuda/            # CUDA llama.cpp package (llama-cli + llama-server)
-   ├── *.Q8_0.gguf              # High performance model (~4GB)
-   ├── *Thinking*.Q8_0.gguf     # Optional Thinking model (~4GB)
-   ├── *Coder*.Q4_K_M.gguf      # Optional Coder model (~18GB)
-   └── *.Q4_K_M.gguf            # Efficiency model (~2.3GB)
+└── .system/                    # Hidden folder (populated by builder)
+    ├── runtime-cpu/            # CPU llama.cpp package (llama-cli + llama-server)
+    ├── runtime-cuda/           # CUDA/Vulkan llama.cpp package
+    ├── *.Q8_0.gguf             # High-quality model (~4 GB)
+    ├── *Thinking*.Q8_0.gguf    # Optional Thinking model (~4 GB)
+    ├── *Coder*.Q4_K_M.gguf     # Optional Coder model (~18 GB)
+    └── *.Q4_K_M.gguf           # Efficiency model (~2.3 GB)
 ```
 
 ## Troubleshooting
 
-### Linux
 | Problem | Fix |
 |---------|-----|
-| "Runtime not found" | Re-run `BuildYourOwn.sh` or unpack runtime tarballs into `.system/runtime-cpu` and `.system/runtime-cuda` |
-| Hangs forever | Check `free -m` — need 4GB+ available. Close browsers. |
-| Slow performance | Normal without NVIDIA GPU. CPU inference works but is slower. |
+| "Runtime not found" | Re-run `BuildYourOwn.sh` or manually unpack runtime tarballs into `.system/runtime-cpu` and `.system/runtime-cuda` |
+| Hangs on startup | Check `free -m` — need 4 GB+ free. Close browsers and other heavy applications. |
+| Slow responses | Normal without a GPU. CPU inference is slower but fully functional. |
 | KV profile rejected | Set `FIGMENT_KV_PROFILE=compatibility` and retry |
-
-- **AI crashes mid-conversation:** Context window full. Close and relaunch.
-- **AI refuses to answer:** Close and relaunch. Rephrase the question.
-
-## Runtime Notes
-
-- Default runtime packages are pinned to `ggml-org/llama.cpp` release `b8893`.
-- `runtime-cuda/` currently uses the pinned Linux Vulkan build as the default accelerated package; override `LLAMA_CPP_CUDA_PACKAGE_URL` if you have a CUDA-specific fork or release.
-- Rotorquant reference source remains `johndpope/llama-cpp-turboquant` branch `feature/planarquant-kv-cache`, commit `20efe75`, for users who want to override the packaged runtime.
-- `LinuxLaunch.sh` currently uses `llama-cli` for terminal chat and detects `llama-server` so the later orchestrator can reuse the same packaged runtime.
-- `LinuxLaunch.sh --thinking` prefers `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf` and falls back to the standard models if it is missing.
-- `LinuxLaunch.sh --coder` prefers `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf` and falls back to the standard models if it is missing.
-- `FIGMENT_MODEL_PROFILE`, `FIGMENT_KV_PROFILE`, `FIGMENT_KV_ROTATION`, and `FIGMENT_CTX_SIZE` can all be used as environment-variable launch overrides.
-- Existing rotorquant-capable forks can be reused immediately by overriding the package URLs in `BuildYourOwn.sh`.
-- When the packaged runtime only supports standard llama.cpp cache types (for example `q8_0`), `LinuxLaunch.sh` now downgrades the requested rotorquant cache profile to a supported quantized cache mode before launch.
+| AI crashes mid-conversation | Context window full. Close and relaunch. |
+| AI refuses to answer | Close and relaunch. Rephrase the question. |
 
 ## Tech Stack
 
 | Component | Technology | License |
 |-----------|-----------|---------|
-| AI Engine (Linux) | `llama.cpp` rotorquant runtime package | MIT |
-| Model | [Qwen3-4B-Instruct abliterated](https://huggingface.co/prithivMLmods/Qwen3-4B-Instruct-2507-abliterated-GGUF) | Apache 2.0 |
-| KV Profiles | `f16`, `turbo3`, `planar3`, `iso3` (runtime-dependent) | — |
-| Context Window | 8192 tokens (default) | — |
+| AI Engine | [`llama.cpp`](https://github.com/ggml-org/llama.cpp) rotorquant runtime | MIT |
+| Default models | [Qwen3-4B-Instruct abliterated](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF) | Apache 2.0 |
+| KV cache profiles | `f16`, `turbo3`, `planar3`, `iso3` (runtime-dependent) | — |
+| Context window | 8192 tokens (default, configurable) | — |
+
+> [!NOTE]
+> Default runtime packages are pinned to `ggml-org/llama.cpp` release `b8893`. The `runtime-cuda/` slot uses the Vulkan build by default. Override `LLAMA_CPP_CUDA_PACKAGE_URL` to use a CUDA-specific build. Rotorquant reference source: `johndpope/llama-cpp-turboquant` branch `feature/planarquant-kv-cache` commit `20efe75`.
+
+## Credits
+
+Built on the shoulders of the [OSE FACTS project](https://github.com/WEAREOSE/facts), the [llama.cpp](https://github.com/ggml-org/llama.cpp) ecosystem, and the [Qwen](https://huggingface.co/Qwen) model team.
 
 ## Support
 
-This is offered AS-IS, and you are responsible for your own support.
+This project is offered **AS-IS**. You are responsible for your own support.

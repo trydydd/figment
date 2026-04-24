@@ -8,15 +8,15 @@
 
 <p align="center">
     <a href="https://github.com/trydydd/llmstick/commits/main">
-    <img src="https://img.shields.io/github/last-commit/trydydd/llmstick.svg?style=flat-square&logo=github&logoColor=white"
+    <img src="https://img.shields.io/github/last-commit/trydydd/llmstick.svg?style=flat-square&logo=github&logoColor=white&color=6b8f4e&labelColor=3d5a2e"
          alt="GitHub last commit">
     </a>
     <a href="https://github.com/trydydd/llmstick/issues">
-    <img src="https://img.shields.io/github/issues-raw/trydydd/llmstick.svg?style=flat-square&logo=github&logoColor=white"
+    <img src="https://img.shields.io/github/issues-raw/trydydd/llmstick.svg?style=flat-square&logo=github&logoColor=white&color=6b8f4e&labelColor=3d5a2e"
          alt="GitHub issues">
     </a>
     <a href="https://github.com/trydydd/llmstick/pulls">
-    <img src="https://img.shields.io/github/issues-pr-raw/trydydd/llmstick.svg?style=flat-square&logo=github&logoColor=white"
+    <img src="https://img.shields.io/github/issues-pr-raw/trydydd/llmstick.svg?style=flat-square&logo=github&logoColor=white&color=6b8f4e&labelColor=3d5a2e"
          alt="GitHub pull requests">
     </a>
 </p>
@@ -37,7 +37,7 @@
 
 <table>
 <tr>
-<td>
+<td bgcolor="eaf4e2">
 
 **Figment** is a complete, open-source build for an AI flash drive that runs **fully offline** — no internet, no installation, no accounts. Plug in the drive, run the launcher, and start asking questions. Nothing is ever saved.
 

@@ -4,7 +4,7 @@ set -euo pipefail
 # Build a bootstrapped facts USB drive from this repository.
 # - Copies repo files to target USB path
 # - Creates .system/
-# - Downloads required binaries/models
+# - Downloads required runtime packages/models
 # - Optionally formats the device as exFAT (destructive)
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,9 +17,44 @@ SKIP_DOWNLOADS="false"
 FORCE="false"
 AUTO_FORMAT="false"
 
-LLAMAFILE_LINUX_URL="${LLAMAFILE_LINUX_URL:-https://github.com/Mozilla-Ocho/llamafile/releases/download/0.9.3/llamafile-0.9.3}"
+LLAMA_CPP_RUNTIME_REPO="${LLAMA_CPP_RUNTIME_REPO:-ggml-org/llama.cpp}"
+LLAMA_CPP_RUNTIME_VERSION="${LLAMA_CPP_RUNTIME_VERSION:-b8893}"
+ROTORQUANT_LLAMA_CPP_REPO="${ROTORQUANT_LLAMA_CPP_REPO:-johndpope/llama-cpp-turboquant}"
+ROTORQUANT_LLAMA_CPP_BRANCH="${ROTORQUANT_LLAMA_CPP_BRANCH:-feature/planarquant-kv-cache}"
+ROTORQUANT_LLAMA_CPP_COMMIT="${ROTORQUANT_LLAMA_CPP_COMMIT:-20efe75}"
+# Shallow clone depth when fetching the rotorquant fork; enough to reach the pinned commit.
+ROTORQUANT_CLONE_DEPTH="${ROTORQUANT_CLONE_DEPTH:-50}"
+# Fallback parallel job count if nproc is unavailable.
+DEFAULT_BUILD_JOBS="${DEFAULT_BUILD_JOBS:-2}"
+# Set to "false" to skip the source build and download a pre-built runtime instead.
+ROTORQUANT_BUILD_RUNTIME="${ROTORQUANT_BUILD_RUNTIME:-true}"
+LLAMA_CPP_RUNTIME_ARCH="${LLAMA_CPP_RUNTIME_ARCH:-$(uname -m 2>/dev/null || printf 'unknown')}"
+
+case "$LLAMA_CPP_RUNTIME_ARCH" in
+  x86_64|amd64)
+    LLAMA_CPP_RUNTIME_PLATFORM="${LLAMA_CPP_RUNTIME_PLATFORM:-x64}"
+    ;;
+  aarch64|arm64)
+    LLAMA_CPP_RUNTIME_PLATFORM="${LLAMA_CPP_RUNTIME_PLATFORM:-arm64}"
+    ;;
+  *)
+    LLAMA_CPP_RUNTIME_PLATFORM="${LLAMA_CPP_RUNTIME_PLATFORM:-}"
+    ;;
+esac
+
+LLAMA_CPP_CPU_PACKAGE_URL="${LLAMA_CPP_CPU_PACKAGE_URL:-}"
+if [[ -z "$LLAMA_CPP_CPU_PACKAGE_URL" && -n "$LLAMA_CPP_RUNTIME_PLATFORM" ]]; then
+  LLAMA_CPP_CPU_PACKAGE_URL="https://github.com/${LLAMA_CPP_RUNTIME_REPO}/releases/download/${LLAMA_CPP_RUNTIME_VERSION}/llama-${LLAMA_CPP_RUNTIME_VERSION}-bin-ubuntu-${LLAMA_CPP_RUNTIME_PLATFORM}.tar.gz"
+fi
+
+LLAMA_CPP_CUDA_PACKAGE_URL="${LLAMA_CPP_CUDA_PACKAGE_URL:-}"
+if [[ -z "$LLAMA_CPP_CUDA_PACKAGE_URL" && -n "$LLAMA_CPP_RUNTIME_PLATFORM" ]]; then
+  LLAMA_CPP_CUDA_PACKAGE_URL="https://github.com/${LLAMA_CPP_RUNTIME_REPO}/releases/download/${LLAMA_CPP_RUNTIME_VERSION}/llama-${LLAMA_CPP_RUNTIME_VERSION}-bin-ubuntu-vulkan-${LLAMA_CPP_RUNTIME_PLATFORM}.tar.gz"
+fi
 Q8_URL="${Q8_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Instruct-2507-abliterated-GGUF/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf}"
 Q4_URL="${Q4_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Instruct-2507-abliterated-GGUF/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf}"
+THINKING_Q8_URL="${THINKING_Q8_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Thinking-2507-abliterated-GGUF/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf?download=true}"
+CODER_Q4_URL="${CODER_Q4_URL:-https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf?download=true}"
 
 usage() {
   cat <<'EOF'
@@ -40,9 +75,21 @@ Options:
   -h, --help                 Show this help
 
 Environment overrides:
-  LLAMAFILE_LINUX_URL
+  LLAMA_CPP_RUNTIME_REPO
+  LLAMA_CPP_RUNTIME_VERSION
+  LLAMA_CPP_RUNTIME_ARCH
+  LLAMA_CPP_RUNTIME_PLATFORM
+  LLAMA_CPP_CPU_PACKAGE_URL
+  LLAMA_CPP_CUDA_PACKAGE_URL
+  ROTORQUANT_LLAMA_CPP_REPO
+  ROTORQUANT_LLAMA_CPP_BRANCH
+  ROTORQUANT_LLAMA_CPP_COMMIT
+  ROTORQUANT_CLONE_DEPTH        Shallow clone depth when fetching rotorquant fork (default: 50)
+  ROTORQUANT_BUILD_RUNTIME    Set to "false" to skip source build and use pre-built runtime
   Q8_URL
   Q4_URL
+  THINKING_Q8_URL
+  CODER_Q4_URL
 
 Examples:
   ./BuildYourOwn.sh --target /media/$USER/facts
@@ -61,6 +108,123 @@ fail() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+check_build_deps_available() {
+  local missing=()
+  for dep in git cmake make gcc g++; do
+    command -v "$dep" >/dev/null 2>&1 || missing+=("$dep")
+  done
+  if (( ${#missing[@]} > 0 )); then
+    log "Missing build tools: ${missing[*]}"
+    return 1
+  fi
+  return 0
+}
+
+build_rotorquant_runtime() {
+  local destination="$1"
+  shift
+  local -a extra_cmake_args=("$@")
+  local src_dir="$TMPDIR/rotorquant-src"
+  local build_dir="$TMPDIR/rotorquant-build"
+  local staging_dir="$TMPDIR/rotorquant-staging"
+  local stamp_file="$destination/.rotorquant-build-commit"
+  local rsync_error_log=""
+  local rsync_error_message=""
+
+  require_cmd rsync
+
+  # Skip if already built at the same commit.
+  if [[ -f "$stamp_file" ]] && [[ "$(cat "$stamp_file" 2>/dev/null)" == "$ROTORQUANT_LLAMA_CPP_COMMIT" ]]; then
+    if [[ -x "$destination/bin/llama-cli" ]]; then
+      log "Rotorquant runtime already built at commit $ROTORQUANT_LLAMA_CPP_COMMIT, skipping rebuild"
+      return 0
+    fi
+  fi
+
+  if [[ ! -d "$src_dir/.git" ]]; then
+    log "Cloning $ROTORQUANT_LLAMA_CPP_REPO (branch: $ROTORQUANT_LLAMA_CPP_BRANCH)"
+    git clone --depth "$ROTORQUANT_CLONE_DEPTH" \
+      --branch "$ROTORQUANT_LLAMA_CPP_BRANCH" \
+      "https://github.com/$ROTORQUANT_LLAMA_CPP_REPO.git" \
+      "$src_dir" || return 1
+  fi
+
+  log "Checking out pinned commit: $ROTORQUANT_LLAMA_CPP_COMMIT"
+  git -C "$src_dir" checkout "$ROTORQUANT_LLAMA_CPP_COMMIT" || return 1
+
+  mkdir -p "$build_dir"
+  rm -rf "$staging_dir"
+  mkdir -p "$staging_dir"
+
+  # Install to a host-side staging directory so cmake does not try to create
+  # symlinks directly on the USB target filesystem (exFAT etc. forbid symlinks).
+  # Keep install RPATH aligned with LinuxLaunch.sh runtime_library_path_for_binary().
+  log "Configuring rotorquant llama.cpp build..."
+  cmake \
+    -B "$build_dir" \
+    -S "$src_dir" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLAMA_BUILD_TESTS=OFF \
+    -DLLAMA_BUILD_EXAMPLES=ON \
+    -DCMAKE_INSTALL_RPATH='$ORIGIN/../lib;$ORIGIN/../lib64;$ORIGIN/..' \
+    -DCMAKE_INSTALL_PREFIX="$staging_dir" \
+    "${extra_cmake_args[@]}" || return 1
+
+  local nproc_count
+  nproc_count="$(nproc 2>/dev/null || echo "${DEFAULT_BUILD_JOBS:-2}")"
+  log "Compiling llama.cpp (using $nproc_count jobs — this may take several minutes)..."
+  cmake --build "$build_dir" --config Release -j"$nproc_count" || return 1
+
+  log "Installing rotorquant runtime to host staging directory..."
+  cmake --install "$build_dir" || { rm -rf "$staging_dir"; return 1; }
+
+  # Copy from the host staging directory to the final destination,
+  # dereferencing symlinks so the target filesystem never sees them.
+  log "Copying rotorquant runtime to $destination (symlinks dereferenced)..."
+  rm -rf "$destination"
+  mkdir -p "$destination"
+  rsync_error_log="$(mktemp "$TMPDIR/rsync.XXXXXX")"
+  if ! rsync -aL "$staging_dir"/ "$destination"/ 2>"$rsync_error_log"; then
+    rsync_error_message="$(head -n 1 "$rsync_error_log" | tr '\r\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+    rm -f "$rsync_error_log"
+    rm -rf "$staging_dir"
+    log "ERROR: rsync from staging to $destination failed${rsync_error_message:+: $rsync_error_message}"
+    return 1
+  fi
+  rm -f "$rsync_error_log"
+  rm -rf "$staging_dir"
+
+  printf '%s\n' "$ROTORQUANT_LLAMA_CPP_COMMIT" > "$stamp_file"
+  return 0
+}
+
+install_rotorquant_cpu_runtime() {
+  local destination="$1"
+
+  if [[ "$ROTORQUANT_BUILD_RUNTIME" != "true" ]]; then
+    log "ROTORQUANT_BUILD_RUNTIME=false: using pre-built package instead of source build"
+    [[ -n "$LLAMA_CPP_CPU_PACKAGE_URL" ]] || fail "No default CPU runtime package URL. Set LLAMA_CPP_CPU_PACKAGE_URL explicitly."
+    install_runtime_package "CPU runtime" "$LLAMA_CPP_CPU_PACKAGE_URL" "$destination"
+    return
+  fi
+
+  if ! check_build_deps_available; then
+    log "Build tools unavailable — falling back to pre-built CPU package"
+    [[ -n "$LLAMA_CPP_CPU_PACKAGE_URL" ]] || fail "No default CPU runtime package URL. Set LLAMA_CPP_CPU_PACKAGE_URL explicitly."
+    install_runtime_package "CPU runtime" "$LLAMA_CPP_CPU_PACKAGE_URL" "$destination"
+    return
+  fi
+
+  log "Building rotorquant-compatible llama.cpp from source (CPU)"
+  if build_rotorquant_runtime "$destination"; then
+    log "Rotorquant CPU runtime built and installed successfully"
+  else
+    log "Rotorquant source build failed — falling back to pre-built CPU package"
+    [[ -n "$LLAMA_CPP_CPU_PACKAGE_URL" ]] || fail "No default CPU runtime package URL. Set LLAMA_CPP_CPU_PACKAGE_URL explicitly."
+    install_runtime_package "CPU runtime" "$LLAMA_CPP_CPU_PACKAGE_URL" "$destination"
+  fi
 }
 
 confirm() {
@@ -174,6 +338,9 @@ download_file() {
   local url="$1"
   local output="$2"
   local size_hint="$3"
+  local attempts=5
+  local attempt=1
+  local retry_delay
 
   require_cmd curl
   mkdir -p "$(dirname -- "$output")"
@@ -186,7 +353,21 @@ download_file() {
 
   log "Downloading $(basename -- "$output") ${size_hint}"
   # -C - resumes partial downloads; important for multi-GB model files.
-  curl -fL --progress-bar -C - "$url" -o "$output"
+  while (( attempt <= attempts )); do
+    if curl -fL --progress-bar -C - "$url" -o "$output"; then
+      return 0
+    fi
+
+    if (( attempt == attempts )); then
+      fail "Download failed after $attempts attempts: $(basename -- "$output")"
+    fi
+
+    log "Retrying download ($(basename -- "$output"), attempt $((attempt + 1))/$attempts)"
+    retry_delay=$((2 ** attempt))
+    (( retry_delay > 16 )) && retry_delay=16
+    sleep "$retry_delay"
+    ((attempt++))
+  done
 }
 
 copy_from_local_downloads_if_present() {
@@ -197,7 +378,7 @@ copy_from_local_downloads_if_present() {
   local candidate=""
 
   if [[ -s "$output" ]]; then
-    log "Using existing model file: $(basename -- "$output")"
+    log "Using existing asset: $(basename -- "$output")"
     return 0
   fi
 
@@ -210,9 +391,161 @@ copy_from_local_downloads_if_present() {
   fi
 
   mkdir -p "$(dirname -- "$output")"
-  log "Using local model file: $candidate"
+  log "Using local asset: $candidate"
   cp -f "$candidate" "$output"
   return 0
+}
+
+download_or_copy_local_asset() {
+  local url="$1"
+  local output="$2"
+  local size_hint="$3"
+  local output_filename
+  local url_basename
+
+  output_filename="$(basename -- "$output")"
+  url_basename="$(basename -- "${url%%\?*}")"
+
+  if copy_from_local_downloads_if_present "$url_basename" "$output"; then
+    return 0
+  fi
+
+  # Some asset URLs add query strings or use a different URL-path basename than
+  # the final pinned on-disk filename, so check both local naming conventions.
+  if [[ "$output_filename" != "$url_basename" ]] && copy_from_local_downloads_if_present "$output_filename" "$output"; then
+    return 0
+  fi
+
+  download_file "$url" "$output" "$size_hint"
+}
+
+extract_tarball() {
+  local archive="$1"
+  local destination="$2"
+  local staging_dir=""
+  local temp_root=""
+  local tar_entry=""
+  local tar_part=""
+  local tar_listing=""
+  local tar_type=""
+  local tar_link_path=""
+  local tar_link_target=""
+  local link_parent=""
+  local canonical_link_target=""
+  local rsync_error_log=""
+  local rsync_error_message=""
+  local canonical_root=""
+  local canonical_destination=""
+  local extracted_path=""
+  local canonical_extracted_path=""
+  local copy_source=""
+  local wrapper_dir=""
+  local wrapper_name=""
+  local -a top_level_entries=()
+  local -a tar_parts=()
+
+  require_cmd tar
+  require_cmd realpath
+  require_cmd rsync
+  [[ -n "$destination" ]] || fail "Refusing to extract archive to an empty destination"
+  [[ "$destination" != "/" ]] || fail "Refusing to extract archive to /"
+  canonical_root="$(realpath -m "$TARGET_DIR/.system")"
+  canonical_destination="$(realpath -m "$destination")"
+  [[ "$canonical_destination" == "$canonical_root/"* ]] || fail "Refusing to extract archive outside $canonical_root: $destination"
+
+  validate_archive_path() {
+    local path="$1"
+    [[ -n "$path" ]] || fail "Unsafe archive path in $(basename -- "$archive"): empty path"
+    [[ "$path" == /* ]] && fail "Unsafe archive path in $(basename -- "$archive"): $path"
+    IFS='/' read -r -a tar_parts <<< "$path"
+    for tar_part in "${tar_parts[@]}"; do
+      [[ "$tar_part" == ".." ]] && fail "Unsafe archive path in $(basename -- "$archive"): $path"
+    done
+    return 0
+  }
+
+  while IFS= read -r tar_listing; do
+    tar_type="${tar_listing%% *}"
+    tar_type="${tar_type:0:1}"
+    if [[ "$tar_type" == "l" ]]; then
+      tar_link_path="$(sed -E 's/^([^[:space:]]+[[:space:]]+){5}//' <<<"$tar_listing")"
+      [[ "$tar_link_path" == *" -> "* ]] || fail "Unsafe archive entry in $(basename -- "$archive"): malformed symbolic link"
+      tar_link_target="${tar_link_path#* -> }"
+      tar_link_path="${tar_link_path% -> *}"
+      validate_archive_path "$tar_link_path"
+      [[ -n "$tar_link_target" ]] || fail "Unsafe archive entry in $(basename -- "$archive"): malformed symbolic link"
+      [[ "$tar_link_target" == /* ]] && fail "Unsafe archive entry in $(basename -- "$archive"): absolute symbolic links are not allowed"
+      validate_archive_path "$tar_link_target"
+      link_parent="$(dirname -- "$tar_link_path")"
+      canonical_link_target="$(realpath -m "$canonical_destination/$link_parent/$tar_link_target")"
+      [[ "$canonical_link_target" == "$canonical_destination/"* ]] || fail "Unsafe archive entry in $(basename -- "$archive"): symbolic link escapes destination"
+    elif [[ "$tar_type" == "h" ]]; then
+      fail "Unsafe archive entry in $(basename -- "$archive"): hard links are not allowed"
+    fi
+  done < <(tar -tvzf "$archive")
+
+  while IFS= read -r tar_entry; do
+    validate_archive_path "$tar_entry"
+  done < <(tar -tzf "$archive")
+
+  temp_root="${TMPDIR:-/tmp}"
+  staging_dir="$(mktemp -d "$temp_root/extract.XXXXXX")"
+  tar -xzf "$archive" -C "$staging_dir"
+
+  while IFS= read -r extracted_path; do
+    [[ -L "$extracted_path" && ! -e "$extracted_path" ]] && fail "Unsafe archive entry in $(basename -- "$archive"): broken symbolic link: ${extracted_path#"$staging_dir"/}"
+    canonical_extracted_path="$(realpath -m "$extracted_path")"
+    [[ "$canonical_extracted_path" == "$staging_dir" || "$canonical_extracted_path" == "$staging_dir/"* ]] || fail "Unsafe extracted path from $(basename -- "$archive"): $extracted_path"
+  done < <(find "$staging_dir" -mindepth 1 -print)
+
+  copy_source="$staging_dir"
+  mapfile -t top_level_entries < <(find "$staging_dir" -mindepth 1 -maxdepth 1 -print)
+  if (( ${#top_level_entries[@]} == 1 )) && [[ -d "${top_level_entries[0]}" ]]; then
+    wrapper_dir="${top_level_entries[0]}"
+    wrapper_name="$(basename -- "$wrapper_dir")"
+    if [[ "$wrapper_name" == "llama-"* ]]; then
+      copy_source="$wrapper_dir"
+    fi
+  fi
+
+  rm -rf "$destination"
+  mkdir -p "$destination"
+  rsync_error_log="$(mktemp "$temp_root/rsync.XXXXXX")"
+  if ! rsync -aL "$copy_source"/ "$destination"/ 2>"$rsync_error_log"; then
+    rsync_error_message="$(head -n 1 "$rsync_error_log" | tr '\r\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+    rm -f "$rsync_error_log"
+    rm -rf "$staging_dir"
+    fail "Failed to copy runtime from staging directory to $destination${rsync_error_message:+: $rsync_error_message}"
+  fi
+  rm -f "$rsync_error_log"
+
+  while IFS= read -r extracted_path; do
+    canonical_extracted_path="$(realpath -m "$extracted_path")"
+    [[ "$canonical_extracted_path" == "$canonical_destination" || "$canonical_extracted_path" == "$canonical_destination/"* ]] || fail "Unsafe extracted path from $(basename -- "$archive"): $extracted_path"
+  done < <(find "$destination" -mindepth 1 -print)
+
+  if [[ -n "$(find "$destination" -type l -print -quit)" ]]; then
+    rm -rf "$staging_dir"
+    fail "Unexpected symbolic links found after copy operation: $destination"
+  fi
+
+  rm -rf "$staging_dir"
+  return 0
+}
+
+install_runtime_package() {
+  local label="$1"
+  local url="$2"
+  local destination="$3"
+  local archive
+  local archive_name
+
+  archive_name="$(basename -- "$url")"
+  archive="$TMPDIR/$archive_name"
+
+  log "Preparing runtime package: $label"
+  download_or_copy_local_asset "$url" "$archive" "(runtime package)"
+  extract_tarball "$archive" "$destination"
 }
 
 download_required_assets() {
@@ -223,26 +556,57 @@ download_required_assets() {
 
   local system_dir="$TARGET_DIR/.system"
   mkdir -p "$system_dir"
-  log "Checking local model files in $HOME/Download (preferred), then $HOME/Downloads"
+  log "Checking local assets in $HOME/Download (preferred), then $HOME/Downloads"
 
-  download_file "$LLAMAFILE_LINUX_URL" "$system_dir/llamafile" "(Linux engine)"
-  chmod +x "$system_dir/llamafile" || true
+  [[ -n "$LLAMA_CPP_CPU_PACKAGE_URL" ]] || fail "No default CPU runtime package is defined for architecture '$LLAMA_CPP_RUNTIME_ARCH'. Set LLAMA_CPP_CPU_PACKAGE_URL explicitly."
+  install_rotorquant_cpu_runtime "$system_dir/runtime-cpu"
 
-  if ! copy_from_local_downloads_if_present \
-    "Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf" \
-    "$system_dir/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf"; then
-    download_file "$Q8_URL" "$system_dir/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf" "(~4.0GB)"
+  if [[ -n "$LLAMA_CPP_CUDA_PACKAGE_URL" ]]; then
+    install_runtime_package "CUDA runtime" "$LLAMA_CPP_CUDA_PACKAGE_URL" "$system_dir/runtime-cuda"
+  else
+    log "Skipping accelerated runtime package because no default package is defined for architecture '$LLAMA_CPP_RUNTIME_ARCH'"
   fi
 
-  if ! copy_from_local_downloads_if_present \
-    "Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf" \
-    "$system_dir/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf"; then
-    download_file "$Q4_URL" "$system_dir/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf" "(~2.3GB)"
+  if [[ -d "$system_dir/runtime-cpu" ]]; then
+    find "$system_dir/runtime-cpu" -type f \( -name 'llama-cli' -o -name 'llama-server' \) -exec chmod +x {} +
   fi
+
+  if [[ -d "$system_dir/runtime-cuda" ]]; then
+    find "$system_dir/runtime-cuda" -type f \( -name 'llama-cli' -o -name 'llama-server' \) -exec chmod +x {} +
+  fi
+
+  download_or_copy_local_asset \
+    "$Q8_URL" \
+    "$system_dir/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf" \
+    "(~4.0GB)"
+
+  download_or_copy_local_asset \
+    "$Q4_URL" \
+    "$system_dir/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf" \
+    "(~2.3GB)"
+
+  download_or_copy_local_asset \
+    "$THINKING_Q8_URL" \
+    "$system_dir/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf" \
+    "(~4.0GB)"
+
+  download_or_copy_local_asset \
+    "$CODER_Q4_URL" \
+    "$system_dir/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf" \
+    "(~17GB)"
 
 }
 
 print_summary() {
+  local accelerated_summary="(not installed)"
+  local cpu_runtime_summary="llama.cpp CLI + server (pre-built package)"
+  if [[ "$ROTORQUANT_BUILD_RUNTIME" == "true" ]] && [[ -f "$TARGET_DIR/.system/runtime-cpu/.rotorquant-build-commit" ]]; then
+    cpu_runtime_summary="llama.cpp CLI + server (rotorquant build from source)"
+  fi
+  if [[ -d "$TARGET_DIR/.system/runtime-cuda" ]]; then
+    accelerated_summary="runtime-cuda/ (accelerated Linux llama.cpp package)"
+  fi
+
   cat <<EOF
 
 Build complete.
@@ -251,9 +615,23 @@ Target: $TARGET_DIR
 Created/updated: $TARGET_DIR/.system/
 
 Installed files:
-- llamafile (Linux engine)
+- runtime-cpu/ ($cpu_runtime_summary)
+- $accelerated_summary
 - Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf
 - Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf
+- Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf
+- Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+
+Rotorquant runtime source:
+- repo: $ROTORQUANT_LLAMA_CPP_REPO
+- branch: $ROTORQUANT_LLAMA_CPP_BRANCH
+- commit: $ROTORQUANT_LLAMA_CPP_COMMIT
+- build from source: $ROTORQUANT_BUILD_RUNTIME
+
+Pre-built fallback package source:
+- repo: $LLAMA_CPP_RUNTIME_REPO
+- release: $LLAMA_CPP_RUNTIME_VERSION
+- platform: ${LLAMA_CPP_RUNTIME_PLATFORM:-override-required}
 
 Next step:
 - Eject the USB drive safely, plug into target Linux machine, run LinuxLaunch.sh.
@@ -261,6 +639,9 @@ EOF
 }
 
 main() {
+  TMPDIR="$(mktemp -d -t llmstick-build.XXXXXX)"
+  trap 'rm -rf "$TMPDIR"' EXIT
+
   parse_args "$@"
 
   require_cmd uname

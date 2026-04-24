@@ -2,19 +2,394 @@
 
 # ==============================================================================
 #  LinuxLaunch.sh
-#  Engine: llamafile
-#  Features: GPU Detect | Nuclear Wipe | Ghost Killer | Expert Prompt
+#  Engine: llama.cpp rotorquant runtime
+#  Features: GPU Detect | Runtime Fallback | KV Profiles | Nuclear Wipe | Ghost Killer | Expert Prompt
 # ==============================================================================
 
 # 1. KILL GHOST PROCESSES
 killall llamafile 2>/dev/null
+killall llama-cli 2>/dev/null
+killall llama-server 2>/dev/null
 
 # 2. ESTABLISH LOCATION
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SYSTEM_DIR="$ROOT_DIR/.system"
-BINARY="$SYSTEM_DIR/llamafile"
+MODEL_HIGH="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf"
+MODEL_LOW="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf"
+MODEL_THINKING="$SYSTEM_DIR/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf"
+MODEL_CODER="$SYSTEM_DIR/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
+CTX_SIZE="${LLMSTICK_CTX_SIZE:-8192}"
+KV_PROFILE_REQUEST="${LLMSTICK_KV_PROFILE:-auto}"
+KV_ROTATION="${LLMSTICK_KV_ROTATION:-turbo3}"
+MODEL_PROFILE_REQUEST="${LLMSTICK_MODEL_PROFILE:-auto}"
+ENGINE_FALLBACK_MODE="false"
+ENGINE_VARIANT=""
+ENGINE_SERVER=""
+RUNTIME_HELP_OUTPUT=""
+SUPPORTED_CACHE_TYPES=""
+RUNTIME_LD_LIBRARY_PATH=""
+
+parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --thinking)
+                MODEL_PROFILE_REQUEST="thinking"
+                shift
+                ;;
+            --coder)
+                MODEL_PROFILE_REQUEST="coder"
+                shift
+                ;;
+            -h|--help)
+                cat <<'EOF'
+Usage: ./LinuxLaunch.sh [--thinking] [--coder]
+
+Options:
+  --thinking   Prefer the Thinking Q8 model when it is installed
+  --coder      Prefer the Qwen3 Coder Q4_K_M model when it is installed
+EOF
+                exit 0
+                ;;
+            *)
+                echo "Unknown argument: $1" >&2
+                exit 1
+                ;;
+        esac
+    done
+}
+
+resolve_binary() {
+    local root="$1"
+    local name="$2"
+    local candidate
+    local search_root
+    local -a search_roots=()
+
+    shopt -s nullglob
+    search_roots=( "$root"/ "$root"/*/ "$root"/*/*/ )
+    shopt -u nullglob
+
+    for search_root in "${search_roots[@]}"; do
+        candidate="${search_root%/}/bin/$name"
+        if [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+
+        candidate="${search_root%/}/$name"
+        if [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+runtime_library_path_for_binary() {
+    local candidate="$1"
+    local binary_dir=""
+    local runtime_root=""
+    local runtime_root_has_shared_libs="false"
+    local path_candidate=""
+    local library_path=""
+
+    [ -n "$candidate" ] || return 0
+    binary_dir="$(cd "$(dirname "$candidate")" 2>/dev/null && pwd -P)" || return 0
+    runtime_root="$(cd "$binary_dir/.." 2>/dev/null && pwd -P)" || return 0
+    if [ -n "$(find "$runtime_root" -maxdepth 1 -type f \( -name '*.so' -o -name '*.so.*' \) -print -quit)" ]; then
+        runtime_root_has_shared_libs="true"
+    fi
+
+    should_include_library_path() {
+        local path_candidate="$1"
+        [ -d "$path_candidate" ] || return 1
+        [ "$path_candidate" != "$runtime_root" ] || [ "$runtime_root_has_shared_libs" = "true" ]
+    }
+
+    for path_candidate in "$runtime_root/lib" "$runtime_root/lib64" "$runtime_root"; do
+        if should_include_library_path "$path_candidate"; then
+            if [ -n "$library_path" ]; then
+                library_path="${library_path}:$path_candidate"
+            else
+                library_path="$path_candidate"
+            fi
+        fi
+    done
+
+    printf '%s\n' "$library_path"
+}
+
+prepend_runtime_library_path() {
+    local runtime_library_path="$1"
+
+    if [ -n "$runtime_library_path" ]; then
+        printf '%s\n' "${runtime_library_path}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    else
+        printf '%s\n' "${LD_LIBRARY_PATH:-}"
+    fi
+}
+
+run_command_with_binary_libs() {
+    local candidate="$1"
+    shift
+    local runtime_library_path=""
+
+    runtime_library_path="$(runtime_library_path_for_binary "$candidate")"
+    if [ -n "$runtime_library_path" ]; then
+        LD_LIBRARY_PATH="$(prepend_runtime_library_path "$runtime_library_path")" "$candidate" "$@"
+    else
+        "$candidate" "$@"
+    fi
+}
+
+run_runtime_command() {
+    if [ -n "$RUNTIME_LD_LIBRARY_PATH" ]; then
+        LD_LIBRARY_PATH="$(prepend_runtime_library_path "$RUNTIME_LD_LIBRARY_PATH")" "$@"
+    else
+        "$@"
+    fi
+}
+
+probe_binary() {
+    local candidate="$1"
+    [ -n "$candidate" ] || return 1
+    run_command_with_binary_libs "$candidate" --help >/dev/null 2>&1
+}
+
+detect_supported_cache_types() {
+    local candidate="$1"
+
+    RUNTIME_HELP_OUTPUT="$(run_command_with_binary_libs "$candidate" --help 2>&1 || true)"
+    SUPPORTED_CACHE_TYPES="$(
+        printf '%s\n' "$RUNTIME_HELP_OUTPUT" | awk '
+            BEGIN {
+                # Match float cache types, standard llama.cpp quantized cache types, and rotorquant cache types.
+                cache_type_pattern = "^(f16|f32|bf16|q[0-9]+(_[a-z0-9]+)*|iq[0-9]+(_[a-z0-9]+)*|(planar|turbo|iso)[0-9]+)$"
+            }
+
+            # Extract cache-type tokens from one help-output line, stripping punctuation and deduplicating matches.
+            function emit_tokens(line, normalized, count, i, token) {
+                normalized = line
+                gsub(/[][()]/, " ", normalized)
+                gsub(/,/, " ", normalized)
+                gsub(/[[:space:]]+/, " ", normalized)
+                count = split(normalized, parts, " ")
+                for (i = 1; i <= count; i++) {
+                    token = parts[i]
+                    if (token ~ cache_type_pattern && !seen[token]++) {
+                        supported_types = supported_types (supported_types ? " " : "") token
+                    }
+                }
+            }
+
+            /^[[:space:]]*--cache-type-(k|v)([[:space:]]|$)/ { in_block=1; collecting=0; next }
+            in_block && /^[[:space:]]*--/ { in_block=0; collecting=0; next }
+            in_block && /allowed values:/ {
+                collecting=1
+                line=$0
+                sub(/^.*allowed values:[[:space:]]*/, "", line)
+                emit_tokens(line)
+                next
+            }
+            in_block && collecting {
+                emit_tokens($0)
+            }
+
+            END {
+                print supported_types
+            }
+        '
+    )"
+}
+
+cache_type_supported() {
+    local candidate="$1"
+    case " $SUPPORTED_CACHE_TYPES " in
+        *" $candidate "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+best_quantized_cache_type() {
+    local candidate=""
+    local checked_cache_types=" "
+    local -a rotorquant_candidates=()
+
+    [ -n "$KV_ROTATION" ] && rotorquant_candidates+=("$KV_ROTATION")
+    rotorquant_candidates+=(turbo3 planar3 iso3)
+
+    for candidate in "${rotorquant_candidates[@]}"; do
+        case "$checked_cache_types" in
+            *" $candidate "*) continue ;;
+        esac
+        checked_cache_types="${checked_cache_types}${candidate} "
+        if cache_type_supported "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    for candidate in $SUPPORTED_CACHE_TYPES; do
+        case "$candidate" in
+            planar*|turbo*|iso*)
+                case "$checked_cache_types" in
+                    *" $candidate "*) continue ;;
+                esac
+                checked_cache_types="${checked_cache_types}${candidate} "
+                if cache_type_supported "$candidate"; then
+                    printf '%s\n' "$candidate"
+                    return 0
+                fi
+                ;;
+        esac
+    done
+
+    for candidate in q8_0 q5_1 q5_0 iq4_nl q4_1 q4_0; do
+        if cache_type_supported "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+adapt_kv_profile_for_runtime() {
+    local requested="$1"
+    local quantized_cache_type=""
+
+    if [ -z "$SUPPORTED_CACHE_TYPES" ]; then
+        return 0
+    fi
+
+    if cache_type_supported "$CACHE_TYPE_K" && cache_type_supported "$CACHE_TYPE_V"; then
+        return 0
+    fi
+
+    quantized_cache_type="$(best_quantized_cache_type 2>/dev/null || true)"
+
+    case "$requested" in
+        auto|memory-saver)
+            if [ -n "$quantized_cache_type" ] && cache_type_supported "f16"; then
+                CACHE_TYPE_K="$quantized_cache_type"
+                CACHE_TYPE_V="f16"
+                CACHE_PROFILE_NAME="Quantized Memory Saver [$CACHE_TYPE_K/$CACHE_TYPE_V] [runtime fallback]"
+            else
+                CACHE_TYPE_K="f16"
+                CACHE_TYPE_V="f16"
+                CACHE_PROFILE_NAME="Compatibility [f16/f16] [runtime fallback]"
+            fi
+            ;;
+        max-compression)
+            if [ -n "$quantized_cache_type" ]; then
+                CACHE_TYPE_K="$quantized_cache_type"
+                CACHE_TYPE_V="$quantized_cache_type"
+                CACHE_PROFILE_NAME="Quantized Max Compression [$CACHE_TYPE_K/$CACHE_TYPE_V] [runtime fallback]"
+            else
+                CACHE_TYPE_K="f16"
+                CACHE_TYPE_V="f16"
+                CACHE_PROFILE_NAME="Compatibility [f16/f16] [runtime fallback]"
+            fi
+            ;;
+        *)
+            CACHE_TYPE_K="f16"
+            CACHE_TYPE_V="f16"
+            CACHE_PROFILE_NAME="Compatibility [f16/f16]"
+            ;;
+    esac
+}
+
+choose_runtime_binary() {
+    local preferred_variant="$1"
+    local candidate=""
+    local direct_candidate=""
+
+    if [ "$preferred_variant" = "cuda" ]; then
+        candidate="$(resolve_binary "$SYSTEM_DIR/runtime-cuda" "llama-cli" 2>/dev/null || true)"
+        if [ -n "$candidate" ] && probe_binary "$candidate"; then
+            ENGINE_VARIANT="CUDA"
+            ENGINE_SERVER="$(resolve_binary "$SYSTEM_DIR/runtime-cuda" "llama-server" 2>/dev/null || true)"
+            BINARY="$candidate"
+            return 0
+        fi
+    fi
+
+    candidate="$(resolve_binary "$SYSTEM_DIR/runtime-cpu" "llama-cli" 2>/dev/null || true)"
+    if [ -n "$candidate" ] && probe_binary "$candidate"; then
+        ENGINE_VARIANT="CPU"
+        ENGINE_SERVER="$(resolve_binary "$SYSTEM_DIR/runtime-cpu" "llama-server" 2>/dev/null || true)"
+        if [ "$preferred_variant" = "cuda" ]; then
+            ENGINE_FALLBACK_MODE="true"
+        fi
+        BINARY="$candidate"
+        return 0
+    fi
+
+    direct_candidate="$(resolve_binary "$SYSTEM_DIR" "llama-cli" 2>/dev/null || true)"
+    if [ -n "$direct_candidate" ] && probe_binary "$direct_candidate"; then
+        ENGINE_VARIANT="MANUAL"
+        ENGINE_SERVER="$(resolve_binary "$SYSTEM_DIR" "llama-server" 2>/dev/null || true)"
+        if [ "$preferred_variant" = "cuda" ]; then
+            ENGINE_FALLBACK_MODE="true"
+        fi
+        BINARY="$direct_candidate"
+        return 0
+    fi
+
+    return 1
+}
+
+set_kv_profile() {
+    local requested="$1"
+
+    case "$requested" in
+        auto)
+            set_kv_profile "memory-saver"
+            ;;
+        compatibility)
+            CACHE_TYPE_K="f16"
+            CACHE_TYPE_V="f16"
+            CACHE_PROFILE_NAME="Compatibility [f16/f16]"
+            ;;
+        memory-saver)
+            CACHE_TYPE_K="$KV_ROTATION"
+            CACHE_TYPE_V="f16"
+            CACHE_PROFILE_NAME="RotorQuant Memory Saver [$KV_ROTATION/f16]"
+            ;;
+        max-compression)
+            CACHE_TYPE_K="$KV_ROTATION"
+            CACHE_TYPE_V="$KV_ROTATION"
+            CACHE_PROFILE_NAME="RotorQuant Max Compression [$KV_ROTATION/$KV_ROTATION]"
+            ;;
+        *)
+            CACHE_TYPE_K="f16"
+            CACHE_TYPE_V="f16"
+            CACHE_PROFILE_NAME="Compatibility [f16/f16] (invalid profile '$requested' ignored)"
+            ;;
+    esac
+}
+
+is_kv_profile_error() {
+    local log_file="$1"
+    local kv_error_pattern=""
+
+    # Match the common ways llama.cpp-style runtimes report unsupported KV cache flags.
+    kv_error_pattern='unsupported cache type|cache type .*not supported|unknown (argument|option).*(cache-type|ctk|ctv)|invalid (argument|value).*(cache-type|ctk|ctv)|unrecognized option.*(cache-type|ctk|ctv)'
+
+    grep -Eiq "$kv_error_pattern" "$log_file"
+}
+
+is_crash_signal_exit() {
+    local exit_code="$1"
+    case "${exit_code:-0}" in
+        131|132|134|135|136|137|139) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
 # Clear Screen & Set Title
+parse_args "$@"
 printf "\033]0;Qwen AI - Linux Launcher\007"
 clear
 echo "----------------------------------------------------------------"
@@ -22,11 +397,11 @@ echo "  INITIALIZING QWEN AI [LINUX]..."
 echo "----------------------------------------------------------------"
 
 # 3. PRE-FLIGHT CHECK
-if [ ! -f "$BINARY" ]; then
+if [ ! -d "$SYSTEM_DIR" ]; then
     echo ""
-    echo "  [ERROR] AI engine not found in .system/"
-    echo "  The binary is missing. Your drive may be corrupted"
-    echo "  or your system may have blocked it."
+    echo "  [ERROR] Runtime folder not found in .system/"
+    echo "  The runtime package is missing. Your drive may be corrupted"
+    echo "  or setup may not have completed."
     echo ""
     echo "  Need help? Visit opensourceeverything.io and use the support chat."
     echo ""
@@ -34,15 +409,14 @@ if [ ! -f "$BINARY" ]; then
     exit 1
 fi
 
-# 4. PERMISSIONS FIX
-chmod +x "$BINARY" 2>/dev/null
-
 # 5. MEMORY WIPE (Zero-Log Privacy)
 rm -f "$HOME/.llama_history"
 rm -f "$ROOT_DIR/llama.chat.history"
 rm -f "$SYSTEM_DIR/llama.chat.history"
 rm -f "$ROOT_DIR/main.session"
 rm -f "$SYSTEM_DIR/main.session"
+rm -f "$ROOT_DIR/main.log"
+rm -f "$SYSTEM_DIR/main.log"
 
 echo "  Cache Status: Wiped Clean [Zero-Log Mode]"
 
@@ -68,6 +442,7 @@ fi
 # 7. GPU DETECTION
 GPU_FLAGS=""
 GPU_STATUS="CPU only"
+PREFERRED_RUNTIME="cpu"
 
 # Check for NVIDIA GPU (CUDA)
 if command -v nvidia-smi &>/dev/null; then
@@ -75,15 +450,47 @@ if command -v nvidia-smi &>/dev/null; then
     if [ -n "$GPU_NAME" ]; then
         GPU_FLAGS="-ngl 99"
         GPU_STATUS="$GPU_NAME [NVIDIA CUDA acceleration enabled]"
+        PREFERRED_RUNTIME="cuda"
     fi
 fi
 
 echo "  GPU: $GPU_STATUS"
 
-# 8. DEFINE FILES & SMART SELECTION
-MODEL_HIGH="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf"
-MODEL_LOW="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf"
-CTX_SIZE="8192"
+# 8. RUNTIME SELECTION
+BINARY=""
+choose_runtime_binary "$PREFERRED_RUNTIME" || true
+if [ -z "$BINARY" ]; then
+    echo ""
+    echo "  [ERROR] No runnable llama.cpp CLI was found in .system/"
+    echo "  Expected one of:"
+    echo "  - .system/runtime-cpu/bin/llama-cli"
+    echo "  - .system/runtime-cuda/bin/llama-cli"
+    echo "  - .system/llama-cli"
+    echo ""
+    echo "  Re-run BuildYourOwn.sh or manually unpack a runtime package."
+    echo ""
+    read -p "  Press Enter to exit..."
+    exit 1
+fi
+
+chmod +x "$BINARY" 2>/dev/null
+[ -n "$ENGINE_SERVER" ] && chmod +x "$ENGINE_SERVER" 2>/dev/null || true
+RUNTIME_LD_LIBRARY_PATH="$(runtime_library_path_for_binary "$BINARY")"
+detect_supported_cache_types "$BINARY"
+
+if [ "$ENGINE_FALLBACK_MODE" = "true" ]; then
+    echo "  Runtime: CPU fallback [CUDA package unavailable or unusable]"
+else
+    echo "  Runtime: $ENGINE_VARIANT"
+fi
+
+if [ -n "$ENGINE_SERVER" ]; then
+    echo "  Server: Available ($(basename "$ENGINE_SERVER"))"
+else
+    echo "  Server: Not installed in selected runtime"
+fi
+
+# 9. DEFINE FILES & SMART SELECTION
 
 if [ "$RAM_GB" -ge 16 ]; then
     SELECTED_MODEL="$MODEL_HIGH"
@@ -93,10 +500,41 @@ else
     MODE_NAME="Efficiency Mode [Q4]"
 fi
 
+DEFAULT_MODEL="$SELECTED_MODEL"
+DEFAULT_MODE_NAME="$MODE_NAME"
+
+case "$MODEL_PROFILE_REQUEST" in
+    thinking)
+        if [ -f "$MODEL_THINKING" ]; then
+            SELECTED_MODEL="$MODEL_THINKING"
+            MODE_NAME="Thinking Mode [Q8]"
+        else
+            case "$DEFAULT_MODE_NAME" in
+                "High Performance [Q8]") MODE_NAME="Fallback from Thinking [Q8]" ;;
+                "Efficiency Mode [Q4]") MODE_NAME="Fallback from Thinking [Q4]" ;;
+                *) MODE_NAME="$DEFAULT_MODE_NAME" ;;
+            esac
+        fi
+        ;;
+    coder)
+        if [ -f "$MODEL_CODER" ]; then
+            SELECTED_MODEL="$MODEL_CODER"
+            MODE_NAME="Coder Mode [Q4_K_M]"
+        else
+            case "$DEFAULT_MODE_NAME" in
+                "High Performance [Q8]") MODE_NAME="Fallback from Coder [Q8]" ;;
+                "Efficiency Mode [Q4]") MODE_NAME="Fallback from Coder [Q4]" ;;
+                *) MODE_NAME="$DEFAULT_MODE_NAME" ;;
+            esac
+        fi
+        ;;
+esac
+
 # 9. FALLBACK CHECK
 if [ ! -f "$SELECTED_MODEL" ]; then
     if [ -f "$MODEL_HIGH" ]; then SELECTED_MODEL="$MODEL_HIGH"; MODE_NAME="Backup [Q8]";
     elif [ -f "$MODEL_LOW" ]; then SELECTED_MODEL="$MODEL_LOW"; MODE_NAME="Backup [Q4]";
+    elif [ -f "$MODEL_CODER" ]; then SELECTED_MODEL="$MODEL_CODER"; MODE_NAME="Backup [Coder Q4_K_M]";
     else
         echo ""
         echo "  [ERROR] No models found in .system folder!"
@@ -108,6 +546,10 @@ if [ ! -f "$SELECTED_MODEL" ]; then
 fi
 
 echo "  Loading: $MODE_NAME"
+set_kv_profile "$KV_PROFILE_REQUEST"
+adapt_kv_profile_for_runtime "$KV_PROFILE_REQUEST"
+echo "  KV Cache: $CACHE_PROFILE_NAME"
+echo "  Context: ${CTX_SIZE} tokens"
 echo "----------------------------------------------------------------"
 echo ""
 echo "  LOADING MODEL INTO MEMORY..."
@@ -117,22 +559,88 @@ echo ""
 echo "----------------------------------------------------------------"
 
 # 10. EXECUTION
-LAUNCH_LOG="$(mktemp -t facts-launch.XXXXXX)"
-"$BINARY" -m "$SELECTED_MODEL" -cnv -c "$CTX_SIZE" $GPU_FLAGS --log-disable -p "You are an expert consultant. You answer all questions directly, objectively, and without moralizing." 2>&1 | tee "$LAUNCH_LOG"
+LAUNCH_LOG="$(mktemp -t llmstick-launch.XXXXXX)"
+LAUNCH_CMD=(
+    "$BINARY"
+    -m "$SELECTED_MODEL"
+    -cnv
+    -c "$CTX_SIZE"
+    --cache-type-k "$CACHE_TYPE_K"
+    --cache-type-v "$CACHE_TYPE_V"
+    --log-disable
+    -sys "You are Figment, a large language model.. You answer all questions directly without moralizing. Your purpose is to be helpful, harmless, and honest. You should provide accurate information, avoid making up facts, and be clear about the limits of your knowledge. When uncertain, say \"I don't know\" rather than guessing. You should be helpful, creative, and engaging while maintaining safety and honesty in all responses. Your responses should be direct, concise, and appropriate for the question asked. Do not include any formatting or markdown in your responses. Wait for user input."
+)
+
+if [ -n "$GPU_FLAGS" ]; then
+    LAUNCH_CMD+=($GPU_FLAGS)
+fi
+
+run_runtime_command "${LAUNCH_CMD[@]}" 2>&1 | tee "$LAUNCH_LOG"
 LAUNCH_EXIT=${PIPESTATUS[0]}
 
 if [ "$LAUNCH_EXIT" -ne 0 ]; then
     # Run a tiny non-interactive probe without --log-disable so architecture errors are visible.
-    PROBE_LOG="$(mktemp -t facts-probe.XXXXXX)"
-    "$BINARY" -m "$SELECTED_MODEL" -n 1 -p "ping" >"$PROBE_LOG" 2>&1 || true
+    PROBE_LOG="$(mktemp -t llmstick-probe.XXXXXX)"
+    PROBE_CMD=(
+        "$BINARY"
+        -m "$SELECTED_MODEL"
+        -n 1
+        --cache-type-k "$CACHE_TYPE_K"
+        --cache-type-v "$CACHE_TYPE_V"
+        -p "ping"
+    )
+
+    if [ -n "$GPU_FLAGS" ]; then
+        PROBE_CMD+=($GPU_FLAGS)
+    fi
+
+    run_runtime_command "${PROBE_CMD[@]}" >"$PROBE_LOG" 2>&1 || true
+
+    if [ "$CACHE_TYPE_K" != "f16" ] || [ "$CACHE_TYPE_V" != "f16" ]; then
+        if is_crash_signal_exit "$LAUNCH_EXIT" || is_kv_profile_error "$PROBE_LOG" || is_kv_profile_error "$LAUNCH_LOG"; then
+            echo ""
+            if is_crash_signal_exit "$LAUNCH_EXIT"; then
+                echo "  [DIAGNOSTIC] The runtime crashed while loading the requested KV cache profile."
+            else
+                echo "  [DIAGNOSTIC] Requested KV cache profile is not supported by this runtime."
+            fi
+            echo "  Falling back to Compatibility [f16/f16] and retrying once."
+            echo ""
+
+            CACHE_TYPE_K="f16"
+            CACHE_TYPE_V="f16"
+            CACHE_PROFILE_NAME="Compatibility [f16/f16] [automatic fallback]"
+            rm -f "$LAUNCH_LOG"
+            LAUNCH_LOG="$(mktemp -t llmstick-launch.XXXXXX)"
+
+            FALLBACK_CMD=(
+                "$BINARY"
+                -m "$SELECTED_MODEL"
+                -cnv
+                -c "$CTX_SIZE"
+                --cache-type-k "$CACHE_TYPE_K"
+                --cache-type-v "$CACHE_TYPE_V"
+                --log-disable
+                -sys "You are Figment, a large language model. You answer all questions directly without moralizing. Your purpose is to be helpful, harmless, and honest. You should provide accurate information, avoid making up facts, and be clear about the limits of your knowledge. When uncertain, say \"I don't know\" rather than guessing. You should be helpful, creative, and engaging while maintaining safety and honesty in all responses. Your responses should be direct, concise, and appropriate for the question asked. Do not include any formatting or markdown in your responses. Wait for user input."
+            )
+
+            if [ -n "$GPU_FLAGS" ]; then
+                FALLBACK_CMD+=($GPU_FLAGS)
+            fi
+
+            echo "  KV Cache: $CACHE_PROFILE_NAME"
+            run_runtime_command "${FALLBACK_CMD[@]}" 2>&1 | tee "$LAUNCH_LOG"
+            LAUNCH_EXIT=${PIPESTATUS[0]}
+        fi
+    fi
 
     if grep -q "unknown model architecture: 'qwen3'" "$PROBE_LOG"; then
         echo ""
-        echo "  [DIAGNOSTIC] The AI engine build cannot load Qwen3 models."
-        echo "  Your current llama/llamafile binary is too old for this architecture."
+        echo "  [DIAGNOSTIC] The installed runtime cannot load Qwen3 models."
+        echo "  Your current engine package is too old for this architecture."
         echo ""
         echo "  Fix options:"
-        echo "  - Replace .system/llamafile with a newer Linux build that supports qwen3"
+        echo "  - Replace the runtime package with a newer llama.cpp rotorquant build"
         echo "  - Or use a model architecture supported by your current engine"
         echo ""
     fi
@@ -142,11 +650,11 @@ fi
 
 if grep -q "unknown model architecture: 'qwen3'" "$LAUNCH_LOG"; then
     echo ""
-    echo "  [DIAGNOSTIC] The AI engine build cannot load Qwen3 models."
-    echo "  Your current llama/llamafile binary is too old for this architecture."
+    echo "  [DIAGNOSTIC] The installed runtime cannot load Qwen3 models."
+    echo "  Your current engine package is too old for this architecture."
     echo ""
     echo "  Fix options:"
-    echo "  - Replace .system/llamafile with a newer Linux build that supports qwen3"
+    echo "  - Replace the runtime package with a newer llama.cpp rotorquant build"
     echo "  - Or use a model architecture supported by your current engine"
     echo ""
 fi

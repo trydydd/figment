@@ -47,6 +47,9 @@ if [[ -z "$LLAMA_CPP_CPU_PACKAGE_URL" && -n "$LLAMA_CPP_RUNTIME_PLATFORM" ]]; th
   LLAMA_CPP_CPU_PACKAGE_URL="https://github.com/${LLAMA_CPP_RUNTIME_REPO}/releases/download/${LLAMA_CPP_RUNTIME_VERSION}/llama-${LLAMA_CPP_RUNTIME_VERSION}-bin-ubuntu-${LLAMA_CPP_RUNTIME_PLATFORM}.tar.gz"
 fi
 
+# NOTE: The variable is named LLAMA_CPP_CUDA_PACKAGE_URL for historical reasons,
+# but the default points at the upstream Vulkan-accelerated build. NVIDIA users
+# wanting a pure CUDA package should override this URL.
 LLAMA_CPP_CUDA_PACKAGE_URL="${LLAMA_CPP_CUDA_PACKAGE_URL:-}"
 if [[ -z "$LLAMA_CPP_CUDA_PACKAGE_URL" && -n "$LLAMA_CPP_RUNTIME_PLATFORM" ]]; then
   LLAMA_CPP_CUDA_PACKAGE_URL="https://github.com/${LLAMA_CPP_RUNTIME_REPO}/releases/download/${LLAMA_CPP_RUNTIME_VERSION}/llama-${LLAMA_CPP_RUNTIME_VERSION}-bin-ubuntu-vulkan-${LLAMA_CPP_RUNTIME_PLATFORM}.tar.gz"
@@ -108,6 +111,52 @@ fail() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+# Look up the expected SHA256 for $1 from the checksum file. Prints the hash on
+# stdout, or nothing if no entry exists. Lines beginning with "#" are skipped.
+expected_sha256() {
+  local name="$1"
+  local checksums_file="${FIGMENT_CHECKSUMS_FILE:-$SCRIPT_DIR/CHECKSUMS.sha256}"
+  [[ -f "$checksums_file" ]] || return 0
+  awk -v name="$name" '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    $2 == name { print $1; exit }
+  ' "$checksums_file"
+}
+
+# Verify a downloaded file against its CHECKSUMS.sha256 entry.
+# Returns 0 if checksum matches OR no entry is recorded OR verification is
+# skipped via FIGMENT_SKIP_CHECKSUMS=1. Returns 1 only on a real mismatch.
+verify_checksum() {
+  local file="$1"
+  local name
+  name="$(basename -- "$file")"
+
+  if [[ "${FIGMENT_SKIP_CHECKSUMS:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  local expected
+  expected="$(expected_sha256 "$name")"
+  if [[ -z "$expected" ]]; then
+    log "WARNING: no recorded SHA256 for $name — skipping verification"
+    log "         Set FIGMENT_SKIP_CHECKSUMS=1 to silence, or populate CHECKSUMS.sha256."
+    return 0
+  fi
+
+  require_cmd sha256sum
+  local actual
+  actual="$(sha256sum "$file" | awk '{print $1}')"
+  if [[ "$actual" != "$expected" ]]; then
+    log "checksum mismatch for $name"
+    log "  expected: $expected"
+    log "  actual:   $actual"
+    return 1
+  fi
+  log "checksum OK: $name"
+  return 0
 }
 
 check_build_deps_available() {
@@ -330,8 +379,16 @@ copy_repo_to_usb() {
   require_cmd rsync
   mkdir -p "$TARGET_DIR"
 
+  if [[ ! -d "$SCRIPT_DIR/LICENSES" ]]; then
+    log "WARNING: LICENSES/ directory missing from repo — distribution will lack required attribution"
+  fi
+
   log "Copying repository files to USB target"
   rsync -a --exclude '.git' --exclude '.DS_Store' "$SCRIPT_DIR/" "$TARGET_DIR/"
+
+  if [[ -d "$TARGET_DIR/LICENSES" ]]; then
+    log "Staged LICENSES/ on target"
+  fi
 }
 
 download_file() {
@@ -345,17 +402,27 @@ download_file() {
   require_cmd curl
   mkdir -p "$(dirname -- "$output")"
 
-  # Re-runs should not redownload large artifacts if they already exist.
+  # Re-runs should not redownload large artifacts if they already exist and
+  # match the recorded checksum. A mismatched cached file is deleted and
+  # re-downloaded by the retry loop below.
   if [[ -s "$output" ]]; then
-    log "Using existing file: $(basename -- "$output")"
-    return 0
+    if verify_checksum "$output"; then
+      log "Using existing file: $(basename -- "$output")"
+      return 0
+    fi
+    log "Cached file failed checksum — discarding and re-downloading: $(basename -- "$output")"
+    rm -f "$output"
   fi
 
   log "Downloading $(basename -- "$output") ${size_hint}"
   # -C - resumes partial downloads; important for multi-GB model files.
   while (( attempt <= attempts )); do
     if curl -fL --progress-bar -C - "$url" -o "$output"; then
-      return 0
+      if verify_checksum "$output"; then
+        return 0
+      fi
+      log "Downloaded file failed checksum — discarding and retrying: $(basename -- "$output")"
+      rm -f "$output"
     fi
 
     if (( attempt == attempts )); then
@@ -378,8 +445,12 @@ copy_from_local_downloads_if_present() {
   local candidate=""
 
   if [[ -s "$output" ]]; then
-    log "Using existing asset: $(basename -- "$output")"
-    return 0
+    if verify_checksum "$output"; then
+      log "Using existing asset: $(basename -- "$output")"
+      return 0
+    fi
+    log "Cached asset failed checksum — discarding: $(basename -- "$output")"
+    rm -f "$output"
   fi
 
   if [[ -f "$primary_dir/$filename" ]]; then
@@ -393,6 +464,11 @@ copy_from_local_downloads_if_present() {
   mkdir -p "$(dirname -- "$output")"
   log "Using local asset: $candidate"
   cp -f "$candidate" "$output"
+  if ! verify_checksum "$output"; then
+    log "Local asset failed checksum — falling back to network download"
+    rm -f "$output"
+    return 1
+  fi
   return 0
 }
 

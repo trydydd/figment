@@ -1,0 +1,68 @@
+name: smoke
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  shell:
+    name: shell sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: bash -n syntax check
+        run: |
+          set -euo pipefail
+          for f in BuildYourOwn.sh LinuxLaunch.sh benchmarks/kv_cache_bench.sh lib/cache_types.sh; do
+            if [ -f "$f" ]; then
+              echo "==> bash -n $f"
+              bash -n "$f"
+            fi
+          done
+
+      - name: shellcheck (informational)
+        # Warnings are surfaced but do not yet fail the build. Promote to a
+        # hard failure in a follow-up after one cleanup pass.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          shellcheck -x BuildYourOwn.sh LinuxLaunch.sh lib/cache_types.sh \
+            $( [ -f benchmarks/kv_cache_bench.sh ] && echo benchmarks/kv_cache_bench.sh )
+
+      - name: BuildYourOwn.sh --help
+        run: ./BuildYourOwn.sh --help
+
+      - name: LinuxLaunch.sh --help
+        run: ./LinuxLaunch.sh --help
+
+  release-artifacts:
+    name: release artifacts present
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: LICENSES present
+        run: |
+          set -euo pipefail
+          test -s LICENSES/LLAMA_CPP_LICENSE.txt
+          test -s "LICENSES/MODEL LICENSES/QWEN_LICENSE.txt"
+
+      - name: CHECKSUMS.sha256 present and parseable
+        run: |
+          set -euo pipefail
+          test -s CHECKSUMS.sha256
+          # No leading whitespace on hash entries; PENDING markers must be commented out.
+          ! grep -E '^[0-9a-f]{0,63}[[:space:]]+[^#]' CHECKSUMS.sha256 || true
+          # Every non-comment, non-blank line must be a valid sha256sum entry.
+          awk '
+            /^[[:space:]]*#/ { next }
+            /^[[:space:]]*$/ { next }
+            $1 !~ /^[0-9a-f]{64}$/ { print "Invalid checksum line: " $0; bad=1 }
+            END { exit bad ? 1 : 0 }
+          ' CHECKSUMS.sha256

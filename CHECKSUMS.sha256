@@ -1,0 +1,32 @@
+# Figment release artifact SHA256 checksums.
+#
+# Format: <sha256>  <filename>
+# Lookup is by the on-disk basename of each downloaded file. Lines starting
+# with `#` are ignored.
+#
+# Entries marked `# PENDING` have not been recorded yet. BuildYourOwn.sh will
+# log a warning and continue when the lookup returns no hash, so the file is
+# safe to ship in this incomplete state. Populate before tagging v1.0.0:
+#
+#   sha256sum \
+#     /tmp/figment-build.*/llama-b8893-bin-ubuntu-x64.tar.gz \
+#     /tmp/figment-build.*/llama-b8893-bin-ubuntu-vulkan-x64.tar.gz \
+#     /path/to/usb/.system/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf \
+#     ...
+#
+# To bypass verification entirely (e.g. when overriding URLs):
+#   FIGMENT_SKIP_CHECKSUMS=1 ./BuildYourOwn.sh ...
+# To point at a different checksum file:
+#   FIGMENT_CHECKSUMS_FILE=/path/to/file.sha256 ./BuildYourOwn.sh ...
+
+# Runtime tarballs (ggml-org/llama.cpp release b8893)
+# PENDING  llama-b8893-bin-ubuntu-x64.tar.gz
+# PENDING  llama-b8893-bin-ubuntu-arm64.tar.gz
+# PENDING  llama-b8893-bin-ubuntu-vulkan-x64.tar.gz
+# PENDING  llama-b8893-bin-ubuntu-vulkan-arm64.tar.gz
+
+# Model GGUFs (HuggingFace)
+# PENDING  Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf
+# PENDING  Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf
+# PENDING  Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf
+# PENDING  Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf

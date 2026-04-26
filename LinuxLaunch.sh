@@ -14,6 +14,16 @@ killall llama-server 2>/dev/null
 # 2. ESTABLISH LOCATION
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SYSTEM_DIR="$ROOT_DIR/.system"
+
+# Shared cache-type detection helpers.
+if [ -f "$ROOT_DIR/lib/cache_types.sh" ]; then
+    # shellcheck source=lib/cache_types.sh
+    . "$ROOT_DIR/lib/cache_types.sh"
+else
+    echo "  [ERROR] Missing $ROOT_DIR/lib/cache_types.sh — re-run BuildYourOwn.sh." >&2
+    exit 1
+fi
+
 MODEL_HIGH="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf"
 MODEL_LOW="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf"
 MODEL_THINKING="$SYSTEM_DIR/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf"
@@ -159,100 +169,23 @@ probe_binary() {
 
 detect_supported_cache_types() {
     local candidate="$1"
+    local runtime_library_path=""
 
-    RUNTIME_HELP_OUTPUT="$(run_command_with_binary_libs "$candidate" --help 2>&1 || true)"
-    SUPPORTED_CACHE_TYPES="$(
-        printf '%s\n' "$RUNTIME_HELP_OUTPUT" | awk '
-            BEGIN {
-                # Match float cache types, standard llama.cpp quantized cache types, and rotorquant cache types.
-                cache_type_pattern = "^(f16|f32|bf16|q[0-9]+(_[a-z0-9]+)*|iq[0-9]+(_[a-z0-9]+)*|(planar|turbo|iso)[0-9]+)$"
-            }
-
-            # Extract cache-type tokens from one help-output line, stripping punctuation and deduplicating matches.
-            function emit_tokens(line, normalized, count, i, token) {
-                normalized = line
-                gsub(/[][()]/, " ", normalized)
-                gsub(/,/, " ", normalized)
-                gsub(/[[:space:]]+/, " ", normalized)
-                count = split(normalized, parts, " ")
-                for (i = 1; i <= count; i++) {
-                    token = parts[i]
-                    if (token ~ cache_type_pattern && !seen[token]++) {
-                        supported_types = supported_types (supported_types ? " " : "") token
-                    }
-                }
-            }
-
-            /^[[:space:]]*--cache-type-(k|v)([[:space:]]|$)/ { in_block=1; collecting=0; next }
-            in_block && /^[[:space:]]*--/ { in_block=0; collecting=0; next }
-            in_block && /allowed values:/ {
-                collecting=1
-                line=$0
-                sub(/^.*allowed values:[[:space:]]*/, "", line)
-                emit_tokens(line)
-                next
-            }
-            in_block && collecting {
-                emit_tokens($0)
-            }
-
-            END {
-                print supported_types
-            }
-        '
-    )"
+    runtime_library_path="$(runtime_library_path_for_binary "$candidate")"
+    if [ -n "$runtime_library_path" ]; then
+        RUNTIME_HELP_OUTPUT="$(LD_LIBRARY_PATH="$(prepend_runtime_library_path "$runtime_library_path")" "$candidate" --help 2>&1 || true)"
+    else
+        RUNTIME_HELP_OUTPUT="$("$candidate" --help 2>&1 || true)"
+    fi
+    SUPPORTED_CACHE_TYPES="$(printf '%s\n' "$RUNTIME_HELP_OUTPUT" | figment_extract_cache_types_from_help)"
 }
 
 cache_type_supported() {
-    local candidate="$1"
-    case " $SUPPORTED_CACHE_TYPES " in
-        *" $candidate "*) return 0 ;;
-        *) return 1 ;;
-    esac
+    figment_cache_type_supported "$@"
 }
 
 best_quantized_cache_type() {
-    local candidate=""
-    local checked_cache_types=" "
-    local -a rotorquant_candidates=()
-
-    [ -n "$KV_ROTATION" ] && rotorquant_candidates+=("$KV_ROTATION")
-    rotorquant_candidates+=(turbo3 planar3 iso3)
-
-    for candidate in "${rotorquant_candidates[@]}"; do
-        case "$checked_cache_types" in
-            *" $candidate "*) continue ;;
-        esac
-        checked_cache_types="${checked_cache_types}${candidate} "
-        if cache_type_supported "$candidate"; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done
-
-    for candidate in $SUPPORTED_CACHE_TYPES; do
-        case "$candidate" in
-            planar*|turbo*|iso*)
-                case "$checked_cache_types" in
-                    *" $candidate "*) continue ;;
-                esac
-                checked_cache_types="${checked_cache_types}${candidate} "
-                if cache_type_supported "$candidate"; then
-                    printf '%s\n' "$candidate"
-                    return 0
-                fi
-                ;;
-        esac
-    done
-
-    for candidate in q8_0 q5_1 q5_0 iq4_nl q4_1 q4_0; do
-        if cache_type_supported "$candidate"; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done
-
-    return 1
+    figment_best_quantized_cache_type "$@"
 }
 
 adapt_kv_profile_for_runtime() {
@@ -444,12 +377,14 @@ GPU_FLAGS=""
 GPU_STATUS="CPU only"
 PREFERRED_RUNTIME="cpu"
 
-# Check for NVIDIA GPU (CUDA)
+# Check for an NVIDIA GPU. The runtime-cuda/ slot ships the upstream
+# Vulkan-accelerated llama.cpp build by default (works on AMD/Intel/NVIDIA);
+# nvidia-smi just gives us a reliable signal that GPU offload is worth trying.
 if command -v nvidia-smi &>/dev/null; then
     GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
     if [ -n "$GPU_NAME" ]; then
         GPU_FLAGS="-ngl 99"
-        GPU_STATUS="$GPU_NAME [NVIDIA CUDA acceleration enabled]"
+        GPU_STATUS="$GPU_NAME [GPU acceleration via runtime-cuda/ (Vulkan build)]"
         PREFERRED_RUNTIME="cuda"
     fi
 fi

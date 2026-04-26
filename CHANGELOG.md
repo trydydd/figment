@@ -30,6 +30,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.system/` location (mirrors the benchmark's existing knob), and
   `FIGMENT_MODEL_OVERRIDE` boots a specific GGUF and bypasses the
   High / Low / Thinking / Coder selection path.
+- `FIGMENT_VERBOSE=1` (or `true`/`yes`/`on`) keeps llama.cpp's runtime
+  logs visible. The launcher adds `--log-disable` by default for a
+  clean end-user prompt; `dev/launch-local.sh` now flips this on
+  automatically so contributors see the full log stream. The e2e
+  smoke test (`tests/e2e/tiny_smoke.sh`) honours the same contract.
 
 ### Changed
 - `LinuxLaunch.sh` GPU banner now reads `GPU acceleration via runtime-cuda/

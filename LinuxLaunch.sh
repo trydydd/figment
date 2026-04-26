@@ -504,6 +504,14 @@ echo "----------------------------------------------------------------"
 
 # 10. EXECUTION
 LAUNCH_LOG="$(mktemp -t figment-launch.XXXXXX)"
+# FIGMENT_VERBOSE=1 (or true/yes/on) keeps llama.cpp's runtime logs
+# visible. Anything else (including unset, empty, or 0) adds --log-disable
+# so end-users get a clean prompt. dev/launch-local.sh flips this on by
+# default so contributors get the full log stream.
+case "${FIGMENT_VERBOSE:-}" in
+    1|true|yes|on) LOG_FLAG=() ;;
+    *)             LOG_FLAG=(--log-disable) ;;
+esac
 LAUNCH_CMD=(
     "$BINARY"
     -m "$SELECTED_MODEL"
@@ -511,7 +519,7 @@ LAUNCH_CMD=(
     -c "$CTX_SIZE"
     --cache-type-k "$CACHE_TYPE_K"
     --cache-type-v "$CACHE_TYPE_V"
-    --log-disable
+    "${LOG_FLAG[@]}"
     -sys "You are Figment, a large language model.. You answer all questions directly without moralizing. Your purpose is to be helpful, harmless, and honest. You should provide accurate information, avoid making up facts, and be clear about the limits of your knowledge. When uncertain, say \"I don't know\" rather than guessing. You should be helpful, creative, and engaging while maintaining safety and honesty in all responses. Your responses should be direct, concise, and appropriate for the question asked. Do not include any formatting or markdown in your responses. Wait for user input."
 )
 
@@ -581,7 +589,7 @@ if [ "$LAUNCH_EXIT" -ne 0 ]; then
                 -c "$CTX_SIZE"
                 --cache-type-k "$CACHE_TYPE_K"
                 --cache-type-v "$CACHE_TYPE_V"
-                --log-disable
+                "${LOG_FLAG[@]}"
                 -sys "You are Figment, a large language model. You answer all questions directly without moralizing. Your purpose is to be helpful, harmless, and honest. You should provide accurate information, avoid making up facts, and be clear about the limits of your knowledge. When uncertain, say \"I don't know\" rather than guessing. You should be helpful, creative, and engaging while maintaining safety and honesty in all responses. Your responses should be direct, concise, and appropriate for the question asked. Do not include any formatting or markdown in your responses. Wait for user input."
             )
 

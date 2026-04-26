@@ -194,6 +194,7 @@ Useful env vars:
 - `FIGMENT_MODEL_OVERRIDE` — boot a specific GGUF, bypassing the High/Low/Thinking/Coder selection.
 - `FIGMENT_LOCAL_DIR` — change where `dev/bootstrap-local.sh` provisions (default: `./local-dev`).
 - `FIGMENT_LOCAL_MODEL_URL` — swap in a tiny test model for the Q4 slot. Pair with `FIGMENT_SKIP_CHECKSUMS=1` unless the URL is registered in `CHECKSUMS.sha256`.
+- `FIGMENT_VERBOSE=1` — keep llama.cpp's runtime logs visible. The launcher adds `--log-disable` by default for a clean end-user prompt; `dev/launch-local.sh` flips this on automatically. Set `FIGMENT_VERBOSE=0` to mirror production-quiet UX.
 
 ## Credits
 

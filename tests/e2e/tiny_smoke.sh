@@ -190,6 +190,16 @@ run_one_profile() {
     log "----------------------------------------------------------------"
     log "Running profile: $label"
 
+    # Mirror LinuxLaunch.sh's FIGMENT_VERBOSE contract: 1/true/yes/on means
+    # show llama.cpp's runtime logs (useful when debugging a stuck profile),
+    # anything else (default) suppresses them so the verdict line is the
+    # signal.
+    local -a log_flag=()
+    case "${FIGMENT_VERBOSE:-}" in
+        1|true|yes|on) ;;
+        *) log_flag=(--log-disable) ;;
+    esac
+
     local -a cmd=(
         "$llama_cli"
         -m "$model_path"
@@ -199,7 +209,7 @@ run_one_profile() {
         -no-cnv
         --cache-type-k "$k"
         --cache-type-v "$v"
-        --log-disable
+        "${log_flag[@]}"
     )
 
     # 180 s ceiling. Includes the model-load warmup pass (touches all

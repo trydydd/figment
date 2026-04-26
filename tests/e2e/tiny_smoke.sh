@@ -23,7 +23,11 @@ MODEL_NAME="${FIGMENT_E2E_MODEL_NAME:-tinyllama-1.1b-chat-v0.3.Q4_K_M.gguf}"
 MODEL_URL="${FIGMENT_E2E_MODEL_URL:-https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v0.3-GGUF/resolve/main/tinyllama-1.1b-chat-v0.3.Q4_K_M.gguf}"
 
 PROMPT="The capital of France is"
-N_PREDICT=16
+N_PREDICT="${FIGMENT_E2E_N_PREDICT:-8}"
+# Runner CPUs vary; pin threads explicitly so a default-of-1 build doesn't
+# look like a hang. nproc covers GitHub-hosted (usually 2-4 cores) and
+# beefy dev machines alike.
+N_THREADS="${FIGMENT_E2E_N_THREADS:-$(nproc 2>/dev/null || echo 2)}"
 
 # Default KV-profile sweep — first entry is also the --quick case.
 KV_PROFILES=(
@@ -191,25 +195,27 @@ run_one_profile() {
         -m "$model_path"
         -p "$PROMPT"
         -n "$N_PREDICT"
+        -t "$N_THREADS"
         -no-cnv
         --cache-type-k "$k"
         --cache-type-v "$v"
         --log-disable
     )
 
-    # 120 s ceiling so a hung llama-cli (model load gone wrong, decoder spin)
-    # cannot stall the whole job. Generation of 16 tokens with a 1.1B model
-    # finishes in seconds on CPU.
+    # 180 s ceiling. Includes the model-load warmup pass (touches all
+    # weights before generation; on a cold disk can take 30-60s) plus the
+    # actual N_PREDICT-token generation.
+    local timeout_s="${FIGMENT_E2E_TIMEOUT:-180}"
     local exit_code=0
     if [ -n "$lib_path" ]; then
         LD_LIBRARY_PATH="${lib_path}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-            timeout --foreground 120 "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
+            timeout --foreground "$timeout_s" "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
     else
-        timeout --foreground 120 "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
+        timeout --foreground "$timeout_s" "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
     fi
     # `timeout` exits 124 on SIGTERM and 137 on SIGKILL — surface that explicitly.
     if [ "$exit_code" -eq 124 ] || [ "$exit_code" -eq 137 ]; then
-        printf 'inference exceeded 120s ceiling and was killed\n' >>"$stderr_file"
+        printf 'inference exceeded %ss ceiling and was killed\n' "$timeout_s" >>"$stderr_file"
     fi
 
     local stdout_content stderr_content
@@ -244,7 +250,7 @@ run_one_profile() {
             verdict="FALLBACK"
             reason="runtime rejected cache-type ${label} (documented fallback)"
         else
-            reason="exit=$exit_code; stderr tail: $(printf '%s' "$stderr_content" | tail -n 5 | tr '\n' ' ' | head -c 400)"
+            reason="exit=$exit_code; stderr tail (last 30 lines):"$'\n'"$(printf '%s' "$stderr_content" | tail -n 30)"
         fi
     fi
 

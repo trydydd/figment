@@ -519,6 +519,23 @@ if [ -n "$GPU_FLAGS" ]; then
     LAUNCH_CMD+=($GPU_FLAGS)
 fi
 
+if [ -n "${FIGMENT_DRY_RUN:-}" ]; then
+    printf 'DRY-RUN: ENGINE_VARIANT=%s\n' "$ENGINE_VARIANT"
+    printf 'DRY-RUN: ENGINE_FALLBACK_MODE=%s\n' "$ENGINE_FALLBACK_MODE"
+    printf 'DRY-RUN: SYSTEM_DIR=%s\n' "$SYSTEM_DIR"
+    printf 'DRY-RUN: BINARY=%s\n' "$BINARY"
+    printf 'DRY-RUN: SELECTED_MODEL=%s\n' "$SELECTED_MODEL"
+    printf 'DRY-RUN: MODE_NAME=%s\n' "$MODE_NAME"
+    printf 'DRY-RUN: CACHE_PROFILE_NAME=%s\n' "$CACHE_PROFILE_NAME"
+    printf 'DRY-RUN: CACHE_TYPE_K=%s\n' "$CACHE_TYPE_K"
+    printf 'DRY-RUN: CACHE_TYPE_V=%s\n' "$CACHE_TYPE_V"
+    printf 'DRY-RUN: CTX_SIZE=%s\n' "$CTX_SIZE"
+    printf 'DRY-RUN: GPU_FLAGS=%s\n' "$GPU_FLAGS"
+    printf 'DRY-RUN: ARGV=%s\n' "${LAUNCH_CMD[*]}"
+    rm -f "$LAUNCH_LOG"
+    exit 0
+fi
+
 run_runtime_command "${LAUNCH_CMD[@]}" 2>&1 | tee "$LAUNCH_LOG"
 LAUNCH_EXIT=${PIPESTATUS[0]}
 

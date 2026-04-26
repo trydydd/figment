@@ -67,3 +67,36 @@ jobs:
             $1 !~ /^[0-9a-f]{64}$/ { print "Invalid checksum line: " $0; bad=1 }
             END { exit bad ? 1 : 0 }
           ' CHECKSUMS.sha256
+
+  tests:
+    name: unit + integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bats
+        run: sudo apt-get update && sudo apt-get install -y bats
+
+      - name: Run unit + integration tiers
+        run: ./tests/run-all.sh --no-color
+
+  e2e:
+    name: e2e (tiny model)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cache the runtime tarball + tiny model between runs. Key on the
+      # release tag + model URL so cache invalidates if either changes.
+      - name: Cache e2e downloads
+        uses: actions/cache@v4
+        with:
+          path: .test-cache
+          key: e2e-${{ runner.os }}-b8893-tinyllama-1.1b-chat-v0.3-Q4_K_M-v1
+          restore-keys: |
+            e2e-${{ runner.os }}-
+
+      - name: Run e2e (--quick)
+        # Ubuntu runners can reach huggingface.co; the script falls back
+        # cleanly if the model URL is unreachable.
+        run: ./tests/e2e/tiny_smoke.sh --quick

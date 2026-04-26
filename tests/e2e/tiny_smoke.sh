@@ -122,7 +122,10 @@ download_if_missing() {
     log "       into: $dest"
     mkdir -p "$(dirname "$dest")"
     # -C - resumes partial downloads if curl was interrupted previously.
-    if ! curl -fL --progress-bar -C - -o "$dest" "$url"; then
+    # --max-time 600 caps each download at 10 min so a hung HF connection
+    # cannot stall the whole CI job. --retry handles transient 5xx.
+    if ! curl -fL --progress-bar -C - --max-time 600 \
+            --retry 2 --retry-delay 5 -o "$dest" "$url"; then
         rm -f "$dest"
         die "Download failed: $url"
     fi
@@ -182,12 +185,19 @@ run_one_profile() {
         --log-disable
     )
 
+    # 120 s ceiling so a hung llama-cli (model load gone wrong, decoder spin)
+    # cannot stall the whole job. Generation of 16 tokens with a 1.1B model
+    # finishes in seconds on CPU.
     local exit_code=0
     if [ -n "$lib_path" ]; then
         LD_LIBRARY_PATH="${lib_path}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-            "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
+            timeout --foreground 120 "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
     else
-        "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
+        timeout --foreground 120 "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
+    fi
+    # `timeout` exits 124 on SIGTERM and 137 on SIGKILL — surface that explicitly.
+    if [ "$exit_code" -eq 124 ] || [ "$exit_code" -eq 137 ]; then
+        printf 'inference exceeded 120s ceiling and was killed\n' >>"$stderr_file"
     fi
 
     local stdout_content stderr_content

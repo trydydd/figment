@@ -6,10 +6,17 @@ on:
   pull_request:
     branches: ["**"]
 
+# Cancel older in-progress runs on the same ref when a new one starts.
+# Stops stale e2e jobs from piling up while we iterate.
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   shell:
     name: shell sanity
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +52,7 @@ jobs:
   release-artifacts:
     name: release artifacts present
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -71,6 +79,7 @@ jobs:
   tests:
     name: unit + integration tests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -83,6 +92,7 @@ jobs:
   e2e:
     name: e2e (tiny model)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 

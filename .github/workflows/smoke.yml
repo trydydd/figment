@@ -19,7 +19,7 @@ jobs:
       - name: bash -n syntax check
         run: |
           set -euo pipefail
-          for f in BuildYourOwn.sh LinuxLaunch.sh benchmarks/kv_cache_bench.sh lib/cache_types.sh; do
+          for f in BuildYourOwn.sh LinuxLaunch.sh benchmarks/kv_cache_bench.sh lib/cache_types.sh dev/bootstrap-local.sh dev/launch-local.sh dev/bench-local.sh; do
             if [ -f "$f" ]; then
               echo "==> bash -n $f"
               bash -n "$f"
@@ -33,6 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           shellcheck -x BuildYourOwn.sh LinuxLaunch.sh lib/cache_types.sh \
+            dev/bootstrap-local.sh dev/launch-local.sh dev/bench-local.sh \
             $( [ -f benchmarks/kv_cache_bench.sh ] && echo benchmarks/kv_cache_bench.sh )
 
       - name: BuildYourOwn.sh --help

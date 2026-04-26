@@ -176,6 +176,25 @@ Figment/
 >
 > Releases ship a `CHECKSUMS.sha256` file that `BuildYourOwn.sh` uses to verify every downloaded artifact. Set `FIGMENT_SKIP_CHECKSUMS=1` to bypass verification (only needed when overriding URLs to a custom build), or `FIGMENT_CHECKSUMS_FILE=/path/to/file.sha256` to point at an alternate manifest.
 
+## Local development
+
+Contributors iterating on the launcher or benchmark can provision a local `.system/` tree without writing to a USB stick:
+
+```bash
+./dev/bootstrap-local.sh     # populates ./local-dev/.system/
+./dev/launch-local.sh        # runs LinuxLaunch.sh against ./local-dev/.system/
+./dev/bench-local.sh         # runs kv_cache_bench.sh against the same tree
+```
+
+`./local-dev/` is gitignored; this is a developer convenience, not the supported install path. Production installs still go through `BuildYourOwn.sh --target /path/to/usb`.
+
+Useful env vars:
+
+- `FIGMENT_SYSTEM_DIR` — point the launcher at a non-default `.system/` directory.
+- `FIGMENT_MODEL_OVERRIDE` — boot a specific GGUF, bypassing the High/Low/Thinking/Coder selection.
+- `FIGMENT_LOCAL_DIR` — change where `dev/bootstrap-local.sh` provisions (default: `./local-dev`).
+- `FIGMENT_LOCAL_MODEL_URL` — swap in a tiny test model for the Q4 slot. Pair with `FIGMENT_SKIP_CHECKSUMS=1` unless the URL is registered in `CHECKSUMS.sha256`.
+
 ## Credits
 
 Built on the shoulders of the [OSE FACTS project](https://github.com/WEAREOSE/facts), the [llama.cpp](https://github.com/ggml-org/llama.cpp) ecosystem, and the [Qwen](https://huggingface.co/Qwen) model team.

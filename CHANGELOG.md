@@ -22,6 +22,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `lib/cache_types.sh` — shared cache-type detection helpers used by the
   launcher and the benchmark harness so the parsing logic does not
   diverge.
+- `dev/bootstrap-local.sh`, `dev/launch-local.sh`, `dev/bench-local.sh`
+  — local development scaffold that provisions `./local-dev/.system/`
+  via the production builder and runs the launcher / benchmark against
+  it without a USB stick.
+- Two new launcher env vars: `FIGMENT_SYSTEM_DIR` overrides the
+  `.system/` location (mirrors the benchmark's existing knob), and
+  `FIGMENT_MODEL_OVERRIDE` boots a specific GGUF and bypasses the
+  High / Low / Thinking / Coder selection path.
 
 ### Changed
 - `LinuxLaunch.sh` GPU banner now reads `GPU acceleration via runtime-cuda/

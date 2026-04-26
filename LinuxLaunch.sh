@@ -13,7 +13,7 @@ killall llama-server 2>/dev/null
 
 # 2. ESTABLISH LOCATION
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SYSTEM_DIR="$ROOT_DIR/.system"
+SYSTEM_DIR="${FIGMENT_SYSTEM_DIR:-$ROOT_DIR/.system}"
 
 # Shared cache-type detection helpers.
 if [ -f "$ROOT_DIR/lib/cache_types.sh" ]; then
@@ -477,6 +477,15 @@ if [ ! -f "$SELECTED_MODEL" ]; then
         echo ""
         read -p "  Press Enter to exit..."
         exit 1
+    fi
+fi
+
+if [ -n "${FIGMENT_MODEL_OVERRIDE:-}" ]; then
+    if [ -f "$FIGMENT_MODEL_OVERRIDE" ]; then
+        SELECTED_MODEL="$FIGMENT_MODEL_OVERRIDE"
+        MODE_NAME="Override [$(basename "$FIGMENT_MODEL_OVERRIDE")]"
+    else
+        echo "  [WARNING] FIGMENT_MODEL_OVERRIDE points at $FIGMENT_MODEL_OVERRIDE but the file is missing — falling back to selection." >&2
     fi
 fi
 

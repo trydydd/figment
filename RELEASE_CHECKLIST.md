@@ -26,6 +26,9 @@ ARM64 with GPU offload is **out of scope** for v1.0.0 — see
 
 ## Pre-flight
 
+- [ ] `./dev/bootstrap-local.sh` provisions `./local-dev/.system/` and
+      `./dev/launch-local.sh` boots the model on this host without a
+      USB. Cheap smoke before the real release run.
 - [ ] Working tree is clean and on the release branch.
 - [ ] `LICENSES/LLAMA_CPP_LICENSE.txt` and
       `LICENSES/MODEL LICENSES/QWEN_LICENSE.txt` exist and are

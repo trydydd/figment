@@ -121,14 +121,26 @@ download_if_missing() {
     log "Downloading: $url"
     log "       into: $dest"
     mkdir -p "$(dirname "$dest")"
+    local err_file
+    err_file="$(mktemp -t tiny_smoke.curl.XXXXXX)"
     # -C - resumes partial downloads if curl was interrupted previously.
     # --max-time 600 caps each download at 10 min so a hung HF connection
     # cannot stall the whole CI job. --retry handles transient 5xx.
-    if ! curl -fL --progress-bar -C - --max-time 600 \
-            --retry 2 --retry-delay 5 -o "$dest" "$url"; then
-        rm -f "$dest"
+    if ! curl -fL --progress-bar --show-error -C - --max-time 600 \
+            --retry 2 --retry-delay 5 -o "$dest" "$url" 2>"$err_file"; then
+        local curl_exit=$?
+        warn "curl exit=$curl_exit"
+        warn "curl stderr (last 20 lines):"
+        tail -n 20 "$err_file" >&2 || true
+        # HEAD probe so we know whether the URL itself is reachable / what
+        # status code the server returned. -k tolerates redirect quirks; -L
+        # follows them; --max-time bounds the probe.
+        warn "HEAD probe of $url:"
+        curl -sIL --max-time 30 -o /dev/null -w 'http_code=%{http_code} url_effective=%{url_effective} content_type=%{content_type} size_download=%{size_download}\n' "$url" >&2 || true
+        rm -f "$dest" "$err_file"
         die "Download failed: $url"
     fi
+    rm -f "$err_file"
     [ -s "$dest" ] || die "Downloaded file is empty: $dest"
     log "Downloaded: $(basename "$dest") ($(du -h "$dest" | awk '{print $1}'))"
 }

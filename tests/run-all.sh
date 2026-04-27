@@ -67,11 +67,17 @@ run_tier() {
 
 cd "$REPO_ROOT"
 
+# --print-output-on-failure surfaces a failing test's captured stdout/stderr
+# inline in the bats summary. Cheap insurance against silent failures —
+# especially for the integration tier where the launcher's stderr is the
+# whole story.
+BATS_FLAGS=(--print-output-on-failure)
+
 unit_status=0
-run_tier "unit" bats tests/unit || unit_status=$?
+run_tier "unit" bats "${BATS_FLAGS[@]}" tests/unit || unit_status=$?
 
 integration_status=0
-run_tier "integration" bats tests/integration || integration_status=$?
+run_tier "integration" bats "${BATS_FLAGS[@]}" tests/integration || integration_status=$?
 
 e2e_status=0
 if [ "$RUN_E2E" = "1" ]; then

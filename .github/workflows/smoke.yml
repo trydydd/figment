@@ -113,4 +113,8 @@ jobs:
       - name: Run e2e (--quick)
         # Ubuntu runners can reach huggingface.co; the script falls back
         # cleanly if the model URL is unreachable.
+        env:
+          # Surface llama.cpp's runtime logs so silent hangs become
+          # diagnosable in the GitHub Actions log.
+          FIGMENT_VERBOSE: "1"
         run: ./tests/e2e/tiny_smoke.sh --quick

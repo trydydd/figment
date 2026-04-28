@@ -127,9 +127,8 @@ run_with_libs() {
 pick_default_model() {
     local f
     for f in \
-        "$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf" \
-        "$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf" \
-        "$SYSTEM_DIR/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf" \
+        "$SYSTEM_DIR/mlabonne_Qwen3-4B-abliterated-Q8_0.gguf" \
+        "$SYSTEM_DIR/mlabonne_Qwen3-4B-abliterated-Q4_K_M.gguf" \
         "$SYSTEM_DIR/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
     do
         if [ -f "$f" ]; then printf '%s\n' "$f"; return 0; fi

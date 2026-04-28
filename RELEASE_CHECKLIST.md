@@ -100,10 +100,12 @@ documented fallback:
 
 ## Model flags
 
-- [ ] `./LinuxLaunch.sh --thinking` selects the Thinking Q8 model.
+- [ ] `./LinuxLaunch.sh --thinking` reports `Thinking Mode [Q8]` (or
+      `[Q4]`) in the banner and the model path remains the RAM-selected
+      chat model (no separate GGUF required).
 - [ ] `./LinuxLaunch.sh --coder` selects the Coder Q4_K_M model.
-- [ ] Both flags fall back gracefully when the corresponding GGUF is
-      not on disk (delete it, re-run, confirm fallback message).
+- [ ] `--coder` falls back gracefully when the GGUF is not on disk
+      (delete it, re-run, confirm fallback message).
 
 ## Benchmarks
 

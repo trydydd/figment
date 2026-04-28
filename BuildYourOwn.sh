@@ -358,6 +358,8 @@ format_exfat_if_requested() {
   require_cmd mkfs.exfat
   require_cmd mountpoint
   if mountpoint -q "$TARGET_DIR"; then
+    log "Stopping processes using $TARGET_DIR"
+    sudo fuser -km "$TARGET_DIR" 2>/dev/null || true
     log "Unmounting current target mount: $TARGET_DIR"
     sudo umount "$TARGET_DIR" || true
   fi

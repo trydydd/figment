@@ -96,7 +96,7 @@ jobs:
     # the merge-gate signal, not a per-push signal.
     if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
 

@@ -164,10 +164,14 @@ extract_runtime_if_needed() {
     tar -xzf "$tarball" -C "$out_dir" || die "Failed to extract $tarball"
 }
 
+# Prefer llama-completion (non-interactive, exits after N tokens) over llama-cli
+# (interactive REPL that requires --no-conversation which b8893 dropped).
 locate_llama_cli() {
     local search_root="$1"
     local found
-    found="$(find "$search_root" -type f -name 'llama-cli' -print -quit 2>/dev/null || true)"
+    found="$(find "$search_root" -type f \( -name 'llama-completion' -o -name 'llama-cli' \) -print 2>/dev/null \
+        | sort | grep -m1 'llama-completion' || \
+        find "$search_root" -type f -name 'llama-cli' -print -quit 2>/dev/null || true)"
     [ -n "$found" ] || return 1
     [ -x "$found" ] || chmod +x "$found" 2>/dev/null || true
     printf '%s\n' "$found"
@@ -206,16 +210,18 @@ run_one_profile() {
         -p "$PROMPT"
         -n "$N_PREDICT"
         -t "$N_THREADS"
-        -no-cnv
+        --no-repack
         --cache-type-k "$k"
         --cache-type-v "$v"
         "${log_flag[@]}"
     )
 
-    # 180 s ceiling. Includes the model-load warmup pass (touches all
-    # weights before generation; on a cold disk can take 30-60s) plus the
+    # 60 s ceiling. With --no-repack the model loads in < 1s and inference
+    # completes in < 5s even on slow CI runners. The old 180s budget was needed
+    # to cover the CPU_REPACK warmup pass (455 MiB, 20+ min on icelake); that
+    # pass is now skipped.
     # actual N_PREDICT-token generation.
-    local timeout_s="${FIGMENT_E2E_TIMEOUT:-180}"
+    local timeout_s="${FIGMENT_E2E_TIMEOUT:-60}"
     local exit_code=0
     if [ -n "$lib_path" ]; then
         LD_LIBRARY_PATH="${lib_path}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \

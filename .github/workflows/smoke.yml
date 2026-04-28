@@ -1,0 +1,120 @@
+name: smoke
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+# Cancel older in-progress runs on the same ref when a new one starts.
+# Stops stale e2e jobs from piling up while we iterate.
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell:
+    name: shell sanity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: bash -n syntax check
+        run: |
+          set -euo pipefail
+          for f in BuildYourOwn.sh LinuxLaunch.sh benchmarks/kv_cache_bench.sh lib/cache_types.sh dev/bootstrap-local.sh dev/launch-local.sh dev/bench-local.sh; do
+            if [ -f "$f" ]; then
+              echo "==> bash -n $f"
+              bash -n "$f"
+            fi
+          done
+
+      - name: shellcheck (informational)
+        # Warnings are surfaced but do not yet fail the build. Promote to a
+        # hard failure in a follow-up after one cleanup pass.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          shellcheck -x BuildYourOwn.sh LinuxLaunch.sh lib/cache_types.sh \
+            dev/bootstrap-local.sh dev/launch-local.sh dev/bench-local.sh \
+            $( [ -f benchmarks/kv_cache_bench.sh ] && echo benchmarks/kv_cache_bench.sh )
+
+      - name: BuildYourOwn.sh --help
+        run: ./BuildYourOwn.sh --help
+
+      - name: LinuxLaunch.sh --help
+        run: ./LinuxLaunch.sh --help
+
+  release-artifacts:
+    name: release artifacts present
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: LICENSES present
+        run: |
+          set -euo pipefail
+          test -s LICENSES/LLAMA_CPP_LICENSE.txt
+          test -s "LICENSES/MODEL LICENSES/QWEN_LICENSE.txt"
+
+      - name: CHECKSUMS.sha256 present and parseable
+        run: |
+          set -euo pipefail
+          test -s CHECKSUMS.sha256
+          # No leading whitespace on hash entries; PENDING markers must be commented out.
+          ! grep -E '^[0-9a-f]{0,63}[[:space:]]+[^#]' CHECKSUMS.sha256 || true
+          # Every non-comment, non-blank line must be a valid sha256sum entry.
+          awk '
+            /^[[:space:]]*#/ { next }
+            /^[[:space:]]*$/ { next }
+            $1 !~ /^[0-9a-f]{64}$/ { print "Invalid checksum line: " $0; bad=1 }
+            END { exit bad ? 1 : 0 }
+          ' CHECKSUMS.sha256
+
+  tests:
+    name: unit + integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bats
+        run: sudo apt-get update && sudo apt-get install -y bats
+
+      - name: Run unit + integration tiers
+        run: ./tests/run-all.sh --no-color
+
+  e2e:
+    name: e2e (tiny model)
+    # Run only on pushes to main and PRs targeting main. Iterations on
+    # other branches stay on the cheap unit + integration tier; e2e is
+    # the merge-gate signal, not a per-push signal.
+    if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cache the runtime tarball + tiny model between runs. Key on the
+      # release tag + model URL so cache invalidates if either changes.
+      - name: Cache e2e downloads
+        uses: actions/cache@v4
+        with:
+          path: .test-cache
+          key: e2e-${{ runner.os }}-b8893-tinyllama-1.1b-chat-v0.3-Q4_K_M-v1
+          restore-keys: |
+            e2e-${{ runner.os }}-
+
+      - name: Run e2e (--quick)
+        # Ubuntu runners can reach huggingface.co; the script falls back
+        # cleanly if the model URL is unreachable.
+        env:
+          # Surface llama.cpp's runtime logs so silent hangs become
+          # diagnosable in the GitHub Actions log.
+          FIGMENT_VERBOSE: "1"
+        run: ./tests/e2e/tiny_smoke.sh --quick

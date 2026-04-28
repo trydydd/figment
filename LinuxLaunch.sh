@@ -13,7 +13,17 @@ killall llama-server 2>/dev/null
 
 # 2. ESTABLISH LOCATION
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SYSTEM_DIR="$ROOT_DIR/.system"
+SYSTEM_DIR="${FIGMENT_SYSTEM_DIR:-$ROOT_DIR/.system}"
+
+# Shared cache-type detection helpers.
+if [ -f "$ROOT_DIR/lib/cache_types.sh" ]; then
+    # shellcheck source=lib/cache_types.sh
+    . "$ROOT_DIR/lib/cache_types.sh"
+else
+    echo "  [ERROR] Missing $ROOT_DIR/lib/cache_types.sh — re-run BuildYourOwn.sh." >&2
+    exit 1
+fi
+
 MODEL_HIGH="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf"
 MODEL_LOW="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf"
 MODEL_THINKING="$SYSTEM_DIR/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf"
@@ -159,100 +169,23 @@ probe_binary() {
 
 detect_supported_cache_types() {
     local candidate="$1"
+    local runtime_library_path=""
 
-    RUNTIME_HELP_OUTPUT="$(run_command_with_binary_libs "$candidate" --help 2>&1 || true)"
-    SUPPORTED_CACHE_TYPES="$(
-        printf '%s\n' "$RUNTIME_HELP_OUTPUT" | awk '
-            BEGIN {
-                # Match float cache types, standard llama.cpp quantized cache types, and rotorquant cache types.
-                cache_type_pattern = "^(f16|f32|bf16|q[0-9]+(_[a-z0-9]+)*|iq[0-9]+(_[a-z0-9]+)*|(planar|turbo|iso)[0-9]+)$"
-            }
-
-            # Extract cache-type tokens from one help-output line, stripping punctuation and deduplicating matches.
-            function emit_tokens(line, normalized, count, i, token) {
-                normalized = line
-                gsub(/[][()]/, " ", normalized)
-                gsub(/,/, " ", normalized)
-                gsub(/[[:space:]]+/, " ", normalized)
-                count = split(normalized, parts, " ")
-                for (i = 1; i <= count; i++) {
-                    token = parts[i]
-                    if (token ~ cache_type_pattern && !seen[token]++) {
-                        supported_types = supported_types (supported_types ? " " : "") token
-                    }
-                }
-            }
-
-            /^[[:space:]]*--cache-type-(k|v)([[:space:]]|$)/ { in_block=1; collecting=0; next }
-            in_block && /^[[:space:]]*--/ { in_block=0; collecting=0; next }
-            in_block && /allowed values:/ {
-                collecting=1
-                line=$0
-                sub(/^.*allowed values:[[:space:]]*/, "", line)
-                emit_tokens(line)
-                next
-            }
-            in_block && collecting {
-                emit_tokens($0)
-            }
-
-            END {
-                print supported_types
-            }
-        '
-    )"
+    runtime_library_path="$(runtime_library_path_for_binary "$candidate")"
+    if [ -n "$runtime_library_path" ]; then
+        RUNTIME_HELP_OUTPUT="$(LD_LIBRARY_PATH="$(prepend_runtime_library_path "$runtime_library_path")" "$candidate" --help 2>&1 || true)"
+    else
+        RUNTIME_HELP_OUTPUT="$("$candidate" --help 2>&1 || true)"
+    fi
+    SUPPORTED_CACHE_TYPES="$(printf '%s\n' "$RUNTIME_HELP_OUTPUT" | figment_extract_cache_types_from_help)"
 }
 
 cache_type_supported() {
-    local candidate="$1"
-    case " $SUPPORTED_CACHE_TYPES " in
-        *" $candidate "*) return 0 ;;
-        *) return 1 ;;
-    esac
+    figment_cache_type_supported "$@"
 }
 
 best_quantized_cache_type() {
-    local candidate=""
-    local checked_cache_types=" "
-    local -a rotorquant_candidates=()
-
-    [ -n "$KV_ROTATION" ] && rotorquant_candidates+=("$KV_ROTATION")
-    rotorquant_candidates+=(turbo3 planar3 iso3)
-
-    for candidate in "${rotorquant_candidates[@]}"; do
-        case "$checked_cache_types" in
-            *" $candidate "*) continue ;;
-        esac
-        checked_cache_types="${checked_cache_types}${candidate} "
-        if cache_type_supported "$candidate"; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done
-
-    for candidate in $SUPPORTED_CACHE_TYPES; do
-        case "$candidate" in
-            planar*|turbo*|iso*)
-                case "$checked_cache_types" in
-                    *" $candidate "*) continue ;;
-                esac
-                checked_cache_types="${checked_cache_types}${candidate} "
-                if cache_type_supported "$candidate"; then
-                    printf '%s\n' "$candidate"
-                    return 0
-                fi
-                ;;
-        esac
-    done
-
-    for candidate in q8_0 q5_1 q5_0 iq4_nl q4_1 q4_0; do
-        if cache_type_supported "$candidate"; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done
-
-    return 1
+    figment_best_quantized_cache_type "$@"
 }
 
 adapt_kv_profile_for_runtime() {
@@ -444,12 +377,14 @@ GPU_FLAGS=""
 GPU_STATUS="CPU only"
 PREFERRED_RUNTIME="cpu"
 
-# Check for NVIDIA GPU (CUDA)
+# Check for an NVIDIA GPU. The runtime-cuda/ slot ships the upstream
+# Vulkan-accelerated llama.cpp build by default (works on AMD/Intel/NVIDIA);
+# nvidia-smi just gives us a reliable signal that GPU offload is worth trying.
 if command -v nvidia-smi &>/dev/null; then
     GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
     if [ -n "$GPU_NAME" ]; then
         GPU_FLAGS="-ngl 99"
-        GPU_STATUS="$GPU_NAME [NVIDIA CUDA acceleration enabled]"
+        GPU_STATUS="$GPU_NAME [GPU acceleration via runtime-cuda/ (Vulkan build)]"
         PREFERRED_RUNTIME="cuda"
     fi
 fi
@@ -545,6 +480,15 @@ if [ ! -f "$SELECTED_MODEL" ]; then
     fi
 fi
 
+if [ -n "${FIGMENT_MODEL_OVERRIDE:-}" ]; then
+    if [ -f "$FIGMENT_MODEL_OVERRIDE" ]; then
+        SELECTED_MODEL="$FIGMENT_MODEL_OVERRIDE"
+        MODE_NAME="Override [$(basename "$FIGMENT_MODEL_OVERRIDE")]"
+    else
+        echo "  [WARNING] FIGMENT_MODEL_OVERRIDE points at $FIGMENT_MODEL_OVERRIDE but the file is missing — falling back to selection." >&2
+    fi
+fi
+
 echo "  Loading: $MODE_NAME"
 set_kv_profile "$KV_PROFILE_REQUEST"
 adapt_kv_profile_for_runtime "$KV_PROFILE_REQUEST"
@@ -560,6 +504,14 @@ echo "----------------------------------------------------------------"
 
 # 10. EXECUTION
 LAUNCH_LOG="$(mktemp -t figment-launch.XXXXXX)"
+# FIGMENT_VERBOSE=1 (or true/yes/on) keeps llama.cpp's runtime logs
+# visible. Anything else (including unset, empty, or 0) adds --log-disable
+# so end-users get a clean prompt. dev/launch-local.sh flips this on by
+# default so contributors get the full log stream.
+case "${FIGMENT_VERBOSE:-}" in
+    1|true|yes|on) LOG_FLAG=() ;;
+    *)             LOG_FLAG=(--log-disable) ;;
+esac
 LAUNCH_CMD=(
     "$BINARY"
     -m "$SELECTED_MODEL"
@@ -567,12 +519,29 @@ LAUNCH_CMD=(
     -c "$CTX_SIZE"
     --cache-type-k "$CACHE_TYPE_K"
     --cache-type-v "$CACHE_TYPE_V"
-    --log-disable
+    "${LOG_FLAG[@]}"
     -sys "You are Figment, a large language model.. You answer all questions directly without moralizing. Your purpose is to be helpful, harmless, and honest. You should provide accurate information, avoid making up facts, and be clear about the limits of your knowledge. When uncertain, say \"I don't know\" rather than guessing. You should be helpful, creative, and engaging while maintaining safety and honesty in all responses. Your responses should be direct, concise, and appropriate for the question asked. Do not include any formatting or markdown in your responses. Wait for user input."
 )
 
 if [ -n "$GPU_FLAGS" ]; then
     LAUNCH_CMD+=($GPU_FLAGS)
+fi
+
+if [ -n "${FIGMENT_DRY_RUN:-}" ]; then
+    printf 'DRY-RUN: ENGINE_VARIANT=%s\n' "$ENGINE_VARIANT"
+    printf 'DRY-RUN: ENGINE_FALLBACK_MODE=%s\n' "$ENGINE_FALLBACK_MODE"
+    printf 'DRY-RUN: SYSTEM_DIR=%s\n' "$SYSTEM_DIR"
+    printf 'DRY-RUN: BINARY=%s\n' "$BINARY"
+    printf 'DRY-RUN: SELECTED_MODEL=%s\n' "$SELECTED_MODEL"
+    printf 'DRY-RUN: MODE_NAME=%s\n' "$MODE_NAME"
+    printf 'DRY-RUN: CACHE_PROFILE_NAME=%s\n' "$CACHE_PROFILE_NAME"
+    printf 'DRY-RUN: CACHE_TYPE_K=%s\n' "$CACHE_TYPE_K"
+    printf 'DRY-RUN: CACHE_TYPE_V=%s\n' "$CACHE_TYPE_V"
+    printf 'DRY-RUN: CTX_SIZE=%s\n' "$CTX_SIZE"
+    printf 'DRY-RUN: GPU_FLAGS=%s\n' "$GPU_FLAGS"
+    printf 'DRY-RUN: ARGV=%s\n' "${LAUNCH_CMD[*]}"
+    rm -f "$LAUNCH_LOG"
+    exit 0
 fi
 
 run_runtime_command "${LAUNCH_CMD[@]}" 2>&1 | tee "$LAUNCH_LOG"
@@ -620,7 +589,7 @@ if [ "$LAUNCH_EXIT" -ne 0 ]; then
                 -c "$CTX_SIZE"
                 --cache-type-k "$CACHE_TYPE_K"
                 --cache-type-v "$CACHE_TYPE_V"
-                --log-disable
+                "${LOG_FLAG[@]}"
                 -sys "You are Figment, a large language model. You answer all questions directly without moralizing. Your purpose is to be helpful, harmless, and honest. You should provide accurate information, avoid making up facts, and be clear about the limits of your knowledge. When uncertain, say \"I don't know\" rather than guessing. You should be helpful, creative, and engaging while maintaining safety and honesty in all responses. Your responses should be direct, concise, and appropriate for the question asked. Do not include any formatting or markdown in your responses. Wait for user input."
             )
 

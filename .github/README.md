@@ -71,14 +71,14 @@ Everything you need to build your own is right here — the launcher scripts, th
 | File | Size | Source |
 |------|------|--------|
 | `llama-<release>-bin-ubuntu-<arch>.tar.gz` | varies | Pinned `ggml-org/llama.cpp` release → `runtime-cpu/` |
-| `llama-<release>-bin-ubuntu-vulkan-<arch>.tar.gz` | varies | Pinned accelerated Linux release → `runtime-cuda/` |
+| `llama-<release>-bin-ubuntu-vulkan-<arch>.tar.gz` | varies | Pinned accelerated Linux release (Vulkan build) → `runtime-cuda/` |
 | `Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf` | ~4.0 GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
 | `Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf` | ~2.3 GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
 | `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf` | ~4.0 GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Thinking-2507-abliterated-GGUF) |
 | `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf` | ~18 GB | [HuggingFace](https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/tree/main) |
 
 > [!NOTE]
-> The builder defaults to pinned upstream `llama.cpp` release URLs. Override `LLAMA_CPP_CPU_PACKAGE_URL` / `LLAMA_CPP_CUDA_PACKAGE_URL` to reuse an existing rotorquant-capable fork or custom build.
+> The builder defaults to pinned upstream `llama.cpp` release URLs. The `runtime-cuda/` slot is named for historical reasons but ships the Vulkan-accelerated build by default — it works on AMD, Intel, and NVIDIA GPUs out of the box. Override `LLAMA_CPP_CUDA_PACKAGE_URL` to install a pure-CUDA build instead, or `LLAMA_CPP_CPU_PACKAGE_URL` to reuse an existing rotorquant-capable fork.
 
 ## Requirements
 
@@ -172,7 +172,29 @@ Figment/
 | Context window | 8192 tokens (default, configurable) | — |
 
 > [!NOTE]
-> Default runtime packages are pinned to `ggml-org/llama.cpp` release `b8893`. The `runtime-cuda/` slot uses the Vulkan build by default. Override `LLAMA_CPP_CUDA_PACKAGE_URL` to use a CUDA-specific build. Rotorquant reference source: `johndpope/llama-cpp-turboquant` branch `feature/planarquant-kv-cache` commit `20efe75`.
+> Default runtime packages are pinned to `ggml-org/llama.cpp` release `b8893`. The `runtime-cuda/` slot ships the **Vulkan** build by default — the folder name is historical and a future major version may rename it. Override `LLAMA_CPP_CUDA_PACKAGE_URL` to use a CUDA-specific build. Rotorquant reference source: `johndpope/llama-cpp-turboquant` branch `feature/planarquant-kv-cache` commit `20efe75`.
+>
+> Releases ship a `CHECKSUMS.sha256` file that `BuildYourOwn.sh` uses to verify every downloaded artifact. Set `FIGMENT_SKIP_CHECKSUMS=1` to bypass verification (only needed when overriding URLs to a custom build), or `FIGMENT_CHECKSUMS_FILE=/path/to/file.sha256` to point at an alternate manifest.
+
+## Local development
+
+Contributors iterating on the launcher or benchmark can provision a local `.system/` tree without writing to a USB stick:
+
+```bash
+./dev/bootstrap-local.sh     # populates ./local-dev/.system/
+./dev/launch-local.sh        # runs LinuxLaunch.sh against ./local-dev/.system/
+./dev/bench-local.sh         # runs kv_cache_bench.sh against the same tree
+```
+
+`./local-dev/` is gitignored; this is a developer convenience, not the supported install path. Production installs still go through `BuildYourOwn.sh --target /path/to/usb`.
+
+Useful env vars:
+
+- `FIGMENT_SYSTEM_DIR` — point the launcher at a non-default `.system/` directory.
+- `FIGMENT_MODEL_OVERRIDE` — boot a specific GGUF, bypassing the High/Low/Thinking/Coder selection.
+- `FIGMENT_LOCAL_DIR` — change where `dev/bootstrap-local.sh` provisions (default: `./local-dev`).
+- `FIGMENT_LOCAL_MODEL_URL` — swap in a tiny test model for the Q4 slot. Pair with `FIGMENT_SKIP_CHECKSUMS=1` unless the URL is registered in `CHECKSUMS.sha256`.
+- `FIGMENT_VERBOSE=1` — keep llama.cpp's runtime logs visible. The launcher adds `--log-disable` by default for a clean end-user prompt; `dev/launch-local.sh` flips this on automatically. Set `FIGMENT_VERBOSE=0` to mirror production-quiet UX.
 
 ## Credits
 

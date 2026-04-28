@@ -1,0 +1,112 @@
+#!/bin/bash
+# stub-llama-cli — pretends to be llama-cli for bats integration tests.
+#
+# Behaviour controlled via env vars (each test sets these as needed):
+#   STUB_HELP_OUTPUT   text to print on `--help` (default: a help text
+#                      advertising f16/f32/q8_0/q5_1/q5_0/iq4_nl/q4_1/q4_0
+#                      and turbo3/planar3/iso3).
+#   STUB_EXIT_CODE     exit code returned from non-help calls (default 0).
+#   STUB_FAIL_ON_KV    space-separated "k v" pair. When --cache-type-k and
+#                      --cache-type-v match, write an "unsupported cache type"
+#                      line to stderr and exit non-zero.
+#   STUB_STDERR        extra text written to stderr on non-help calls.
+#   STUB_RECORD_FILE   appends one line per invocation, recording argv and
+#                      cache-type-k / cache-type-v.
+
+set -u
+
+DEFAULT_HELP=$(cat <<'EOF'
+usage: llama-cli [options]
+
+options:
+  -h, --help                 show this help and exit
+  -m, --model FNAME          model path
+      --cache-type-k TYPE    KV cache type for K
+                             allowed values: f32, f16, bf16, q8_0, q5_1, q5_0, iq4_nl, q4_1, q4_0, turbo3, planar3, iso3
+      --cache-type-v TYPE    KV cache type for V
+                             allowed values: f32, f16, bf16, q8_0, q5_1, q5_0, iq4_nl, q4_1, q4_0, turbo3, planar3, iso3
+  -c, --ctx-size N           context size
+  -n, --predict N            number of tokens to predict
+  -p, --prompt PROMPT        prompt text
+  -cnv, --conversation       conversation mode
+      --log-disable          disable logs
+  -sys, --system PROMPT      system prompt
+  -ngl N                     n_gpu_layers
+EOF
+)
+
+# --help short-circuit (must not record by default — but we still record so
+# tests that care about probe behaviour can see help calls if they want).
+help_mode="false"
+for arg in "$@"; do
+    if [ "$arg" = "--help" ] || [ "$arg" = "-h" ]; then
+        help_mode="true"
+        break
+    fi
+done
+
+# Extract --cache-type-k / --cache-type-v from argv.
+ctk=""
+ctv=""
+i=1
+for arg in "$@"; do
+    case "$arg" in
+        --cache-type-k)
+            ctk_idx=$((i + 1))
+            ctk="${!ctk_idx:-}"
+            ;;
+        --cache-type-v)
+            ctv_idx=$((i + 1))
+            ctv="${!ctv_idx:-}"
+            ;;
+    esac
+    i=$((i + 1))
+done
+
+# Record this invocation if STUB_RECORD_FILE is set.
+if [ -n "${STUB_RECORD_FILE:-}" ]; then
+    # Single-line JSON-ish record. Quote argv with python-ish-safe escaping.
+    argv_joined=""
+    for a in "$@"; do
+        # Replace each backslash and double quote so the record is grep-friendly.
+        escaped="${a//\\/\\\\}"
+        escaped="${escaped//\"/\\\"}"
+        if [ -z "$argv_joined" ]; then
+            argv_joined="\"$escaped\""
+        else
+            argv_joined="$argv_joined \"$escaped\""
+        fi
+    done
+    printf '{"argv":[%s], "ctk":"%s", "ctv":"%s", "help":%s}\n' \
+        "$argv_joined" "$ctk" "$ctv" "$help_mode" >>"$STUB_RECORD_FILE"
+fi
+
+if [ "$help_mode" = "true" ]; then
+    if [ -n "${STUB_HELP_OUTPUT:-}" ]; then
+        printf '%s\n' "$STUB_HELP_OUTPUT"
+    else
+        printf '%s\n' "$DEFAULT_HELP"
+    fi
+    exit 0
+fi
+
+# Optional auxiliary stderr text (e.g. for tests asserting qwen3 diagnostic).
+if [ -n "${STUB_STDERR:-}" ]; then
+    printf '%s\n' "$STUB_STDERR" >&2
+fi
+
+# Decide whether this invocation should fail because of a forbidden KV pair.
+if [ -n "${STUB_FAIL_ON_KV:-}" ]; then
+    set -- $STUB_FAIL_ON_KV
+    fail_k="${1:-}"
+    fail_v="${2:-}"
+    if [ "$ctk" = "$fail_k" ] && [ "$ctv" = "$fail_v" ]; then
+        printf 'error: unsupported cache type: %s\n' "$ctk" >&2
+        if [ -n "${STUB_EXIT_CODE:-}" ]; then
+            exit "$STUB_EXIT_CODE"
+        fi
+        exit 1
+    fi
+fi
+
+exit "${STUB_EXIT_CODE:-0}"

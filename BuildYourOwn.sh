@@ -358,10 +358,11 @@ format_exfat_if_requested() {
   require_cmd mkfs.exfat
   require_cmd mountpoint
   if mountpoint -q "$TARGET_DIR"; then
-    log "Stopping processes using $TARGET_DIR"
+    log "Stopping processes using $FORMAT_DEVICE"
     sudo fuser -km "$FORMAT_DEVICE" 2>/dev/null || true
+    sleep 1
     log "Unmounting current target mount: $TARGET_DIR"
-    sudo umount "$TARGET_DIR" || true
+    sudo umount "$TARGET_DIR"
   fi
   log "Creating exFAT filesystem on $FORMAT_DEVICE"
   sudo mkfs.exfat -n "$USB_LABEL" "$FORMAT_DEVICE"
@@ -384,7 +385,13 @@ copy_repo_to_usb() {
   fi
 
   log "Copying repository files to USB target"
-  rsync -a --exclude '.git' --exclude '.DS_Store' "$SCRIPT_DIR/" "$TARGET_DIR/"
+  rsync -a --no-owner --no-group \
+    --exclude '.git' \
+    --exclude '.DS_Store' \
+    --exclude '.claude' \
+    --exclude '.test-cache' \
+    --exclude 'local-dev' \
+    "$SCRIPT_DIR/" "$TARGET_DIR/"
 
   if [[ -d "$TARGET_DIR/LICENSES" ]]; then
     log "Staged LICENSES/ on target"

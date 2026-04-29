@@ -90,9 +90,8 @@ Before downloading runtime packages and model files, the script checks:
 
 If it finds:
 - the runtime package archives named by `LLAMA_CPP_CPU_PACKAGE_URL` / `LLAMA_CPP_CUDA_PACKAGE_URL`
-- `Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf`
-- `Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf`
-- `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf`
+- `mlabonne_Qwen3-4B-abliterated-Q8_0.gguf`
+- `mlabonne_Qwen3-4B-abliterated-Q4_K_M.gguf`
 - `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf`
 
 it reuses them instead of downloading again.

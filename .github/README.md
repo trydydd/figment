@@ -39,7 +39,7 @@
 
 **Figment** is a complete, open-source build for an AI flash drive that runs **fully offline** — no internet, no installation, no accounts. Plug in the drive, run the launcher, and start asking questions. Nothing is ever saved.
 
-It ships a self-contained `llama.cpp` runtime alongside abliterated [Qwen3](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF) models, auto-selects the best model for your available RAM, and falls back cleanly from GPU to CPU when needed.
+It ships a self-contained `llama.cpp` runtime alongside abliterated [Qwen3](https://huggingface.co/bartowski/mlabonne_Qwen3-4B-abliterated-GGUF) models, auto-selects the best model for your available RAM, and falls back cleanly from GPU to CPU when needed.
 
 Everything you need to build your own is right here — the launcher scripts, the builder, and the folder structure.
 
@@ -72,9 +72,8 @@ Everything you need to build your own is right here — the launcher scripts, th
 |------|------|--------|
 | `llama-<release>-bin-ubuntu-<arch>.tar.gz` | varies | Pinned `ggml-org/llama.cpp` release → `runtime-cpu/` |
 | `llama-<release>-bin-ubuntu-vulkan-<arch>.tar.gz` | varies | Pinned accelerated Linux release (Vulkan build) → `runtime-cuda/` |
-| `Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf` | ~4.0 GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
-| `Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf` | ~2.3 GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Instruct-2507-abliterated-GGUF) |
-| `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf` | ~4.0 GB | [HuggingFace](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/tree/main/Qwen3-4B-Thinking-2507-abliterated-GGUF) |
+| `mlabonne_Qwen3-4B-abliterated-Q8_0.gguf` | ~4.0 GB | [HuggingFace](https://huggingface.co/bartowski/mlabonne_Qwen3-4B-abliterated-GGUF) |
+| `mlabonne_Qwen3-4B-abliterated-Q4_K_M.gguf` | ~2.3 GB | [HuggingFace](https://huggingface.co/bartowski/mlabonne_Qwen3-4B-abliterated-GGUF) |
 | `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf` | ~18 GB | [HuggingFace](https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/tree/main) |
 
 > [!NOTE]
@@ -123,7 +122,7 @@ FIGMENT_CTX_SIZE=8192 ./LinuxLaunch.sh
 
 | Flag / Variable | Effect |
 |---|---|
-| `--thinking` | Prefers `Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf`; falls back to the RAM-selected model if missing |
+| `--thinking` | Enables extended thinking mode via `/think` system prompt token; uses the RAM-selected chat model |
 | `--coder` | Prefers `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf`; falls back to the RAM-selected model if missing |
 | `FIGMENT_MODEL_PROFILE=thinking\|coder` | Same as `--thinking` / `--coder` without CLI flags |
 | `FIGMENT_KV_PROFILE=compatibility` | Forces `f16/f16` — the safest cache mode |
@@ -167,7 +166,7 @@ Figment/
 | Component | Technology | License |
 |-----------|-----------|---------|
 | AI Engine | [`llama.cpp`](https://github.com/ggml-org/llama.cpp) rotorquant runtime | MIT |
-| Default models | [Qwen3-4B-Instruct abliterated](https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF) | Apache 2.0 |
+| Default models | [Qwen3-4B abliterated](https://huggingface.co/bartowski/mlabonne_Qwen3-4B-abliterated-GGUF) (bartowski/mlabonne) | Apache 2.0 |
 | KV cache profiles | `f16`, `turbo3`, `planar3`, `iso3` (runtime-dependent) | — |
 | Context window | 8192 tokens (default, configurable) | — |
 

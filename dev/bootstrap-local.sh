@@ -9,9 +9,8 @@
 #                            CHECKSUMS.sha256 entry, or run with
 #                            FIGMENT_SKIP_CHECKSUMS=1.
 #
-# Only the two chat models (Q8 + Q4) are downloaded. The thinking and coder
-# models are skipped by default (FIGMENT_SKIP_THINKING=true, FIGMENT_SKIP_CODER=true).
-# Override with FIGMENT_SKIP_THINKING=false or FIGMENT_SKIP_CODER=false to include them.
+# Only the two chat models (Q8 + Q4) are downloaded by default. The coder model
+# is skipped (FIGMENT_SKIP_CODER=true). Override with FIGMENT_SKIP_CODER=false to include it.
 
 set -euo pipefail
 
@@ -32,7 +31,6 @@ Env vars:
   FIGMENT_LOCAL_MODEL_URL  override Q4 model URL (must be in CHECKSUMS.sha256
                            or used with FIGMENT_SKIP_CHECKSUMS=1)
   FIGMENT_SKIP_CHECKSUMS=1 bypass checksum verification
-  FIGMENT_SKIP_THINKING    skip thinking model download (default: true)
   FIGMENT_SKIP_CODER       skip coder model download (default: true)
 EOF
 }
@@ -48,7 +46,6 @@ if [ -n "${FIGMENT_LOCAL_MODEL_URL:-}" ]; then
     export Q4_URL="$FIGMENT_LOCAL_MODEL_URL"
 fi
 
-export FIGMENT_SKIP_THINKING="${FIGMENT_SKIP_THINKING:-true}"
 export FIGMENT_SKIP_CODER="${FIGMENT_SKIP_CODER:-true}"
 
 "$REPO_ROOT/BuildYourOwn.sh" --target "$LOCAL_DIR" --skip-copy --force "$@"

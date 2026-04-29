@@ -233,7 +233,7 @@ build_rotorquant_runtime() {
   rm -rf "$destination"
   mkdir -p "$destination"
   rsync_error_log="$(mktemp "$TMPDIR/rsync.XXXXXX")"
-  if ! rsync -aL "$staging_dir"/ "$destination"/ 2>"$rsync_error_log"; then
+  if ! rsync -aL --no-owner --no-group "$staging_dir"/ "$destination"/ 2>"$rsync_error_log"; then
     rsync_error_message="$(head -n 1 "$rsync_error_log" | tr '\r\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
     rm -f "$rsync_error_log"
     rm -rf "$staging_dir"
@@ -368,7 +368,7 @@ format_exfat_if_requested() {
   sudo mkfs.exfat -n "$USB_LABEL" "$FORMAT_DEVICE"
   mkdir -p "$TARGET_DIR"
   log "Mounting $FORMAT_DEVICE to $TARGET_DIR"
-  sudo mount "$FORMAT_DEVICE" "$TARGET_DIR"
+  sudo mount -o uid="$(id -u)",gid="$(id -g)" "$FORMAT_DEVICE" "$TARGET_DIR"
 }
 
 copy_repo_to_usb() {

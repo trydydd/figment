@@ -386,8 +386,16 @@ copy_repo_to_usb() {
     log "WARNING: LICENSES/ directory missing from repo — distribution will lack required attribution"
   fi
 
+  if ! touch "$TARGET_DIR/.figment-write-test" 2>/dev/null; then
+    fail "Cannot write to $TARGET_DIR — if this is an exFAT drive mounted by root, remount it:
+  sudo umount $TARGET_DIR
+  sudo mount -o uid=\$(id -u),gid=\$(id -g) <device> $TARGET_DIR
+Or unplug and replug the USB so the system automounts it as your user."
+  fi
+  rm -f "$TARGET_DIR/.figment-write-test"
+
   log "Copying repository files to USB target"
-  rsync -a --no-owner --no-group \
+  rsync -a --no-owner --no-group --omit-dir-times \
     --exclude '.git' \
     --exclude '.DS_Store' \
     --exclude '.claude' \
@@ -670,15 +678,23 @@ download_required_assets() {
     "$system_dir/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf" \
     "(~2.3GB)"
 
-  download_or_copy_local_asset \
-    "$THINKING_Q8_URL" \
-    "$system_dir/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf" \
-    "(~4.0GB)"
+  if [[ "${FIGMENT_SKIP_THINKING:-false}" != "true" ]]; then
+    download_or_copy_local_asset \
+      "$THINKING_Q8_URL" \
+      "$system_dir/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf" \
+      "(~4.0GB)"
+  else
+    log "Skipping thinking model (FIGMENT_SKIP_THINKING=true)"
+  fi
 
-  download_or_copy_local_asset \
-    "$CODER_Q4_URL" \
-    "$system_dir/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf" \
-    "(~17GB)"
+  if [[ "${FIGMENT_SKIP_CODER:-false}" != "true" ]]; then
+    download_or_copy_local_asset \
+      "$CODER_Q4_URL" \
+      "$system_dir/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf" \
+      "(~17GB)"
+  else
+    log "Skipping coder model (FIGMENT_SKIP_CODER=true)"
+  fi
 
 }
 

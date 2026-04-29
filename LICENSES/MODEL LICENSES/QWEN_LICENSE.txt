@@ -180,9 +180,10 @@
 Source: https://huggingface.co/Qwen/Qwen3-4B/blob/main/LICENSE
 
 This license covers the Qwen3 models that Figment redistributes:
-  - mlabonne/Qwen3-4B-abliterated (Q8_0, Q4_K_M) — quantized by bartowski
+  - Qwen3-4B-Instruct-2507-abliterated (Q8_0, Q4_K_M)
+  - Qwen3-4B-Thinking-2507-abliterated (Q8_0)
   - Qwen3-Coder-30B-A3B-Instruct (Q4_K_M)
 
-The abliterated GGUF conversions hosted by `bartowski` and the
+The abliterated GGUF conversions hosted by `prithivMLmods` and the
 Qwen3-Coder GGUFs hosted by `unsloth` inherit the upstream Qwen3
 Apache 2.0 license.

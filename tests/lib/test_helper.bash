@@ -9,7 +9,7 @@ STUB_PATH="$TEST_HELPER_DIR/stub-llama-cli"
 
 # Build a fake $SYSTEM_DIR layout that mimics what BuildYourOwn.sh produces:
 #   $TMPDIR/.system/runtime-cpu/bin/llama-cli  (copy of stub)
-#   $TMPDIR/.system/mlabonne_Qwen3-4B-abliterated-Q4_K_M.gguf  (touched)
+#   $TMPDIR/.system/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf  (touched)
 #
 # Sets:
 #   FAKE_TMP        unique tempdir for this test (callers may add files)
@@ -23,7 +23,7 @@ make_fake_system_dir() {
     cp "$STUB_PATH" "$FAKE_SYSTEM_DIR/runtime-cpu/bin/llama-cli"
     chmod +x "$FAKE_SYSTEM_DIR/runtime-cpu/bin/llama-cli"
 
-    FAKE_MODEL_LOW="$FAKE_SYSTEM_DIR/mlabonne_Qwen3-4B-abliterated-Q4_K_M.gguf"
+    FAKE_MODEL_LOW="$FAKE_SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf"
     : >"$FAKE_MODEL_LOW"
 
     FAKE_BIN="$FAKE_SYSTEM_DIR/runtime-cpu/bin/llama-cli"

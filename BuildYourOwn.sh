@@ -54,8 +54,9 @@ LLAMA_CPP_CUDA_PACKAGE_URL="${LLAMA_CPP_CUDA_PACKAGE_URL:-}"
 if [[ -z "$LLAMA_CPP_CUDA_PACKAGE_URL" && -n "$LLAMA_CPP_RUNTIME_PLATFORM" ]]; then
   LLAMA_CPP_CUDA_PACKAGE_URL="https://github.com/${LLAMA_CPP_RUNTIME_REPO}/releases/download/${LLAMA_CPP_RUNTIME_VERSION}/llama-${LLAMA_CPP_RUNTIME_VERSION}-bin-ubuntu-vulkan-${LLAMA_CPP_RUNTIME_PLATFORM}.tar.gz"
 fi
-Q8_URL="${Q8_URL:-https://huggingface.co/bartowski/mlabonne_Qwen3-4B-abliterated-GGUF/resolve/main/mlabonne_Qwen3-4B-abliterated-Q8_0.gguf}"
-Q4_URL="${Q4_URL:-https://huggingface.co/bartowski/mlabonne_Qwen3-4B-abliterated-GGUF/resolve/main/mlabonne_Qwen3-4B-abliterated-Q4_K_M.gguf}"
+Q8_URL="${Q8_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Instruct-2507-abliterated-GGUF/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf}"
+Q4_URL="${Q4_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Instruct-2507-abliterated-GGUF/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf}"
+THINKING_Q8_URL="${THINKING_Q8_URL:-https://huggingface.co/prithivMLmods/Qwen3-4B-2507-abliterated-GGUF/resolve/main/Qwen3-4B-Thinking-2507-abliterated-GGUF/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf?download=true}"
 CODER_Q4_URL="${CODER_Q4_URL:-https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf?download=true}"
 
 usage() {
@@ -90,6 +91,7 @@ Environment overrides:
   ROTORQUANT_BUILD_RUNTIME    Set to "false" to skip source build and use pre-built runtime
   Q8_URL
   Q4_URL
+  THINKING_Q8_URL
   CODER_Q4_URL
 
 Examples:
@@ -668,13 +670,22 @@ download_required_assets() {
 
   download_or_copy_local_asset \
     "$Q8_URL" \
-    "$system_dir/mlabonne_Qwen3-4B-abliterated-Q8_0.gguf" \
+    "$system_dir/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf" \
     "(~4.0GB)"
 
   download_or_copy_local_asset \
     "$Q4_URL" \
-    "$system_dir/mlabonne_Qwen3-4B-abliterated-Q4_K_M.gguf" \
+    "$system_dir/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf" \
     "(~2.3GB)"
+
+  if [[ "${FIGMENT_SKIP_THINKING:-false}" != "true" ]]; then
+    download_or_copy_local_asset \
+      "$THINKING_Q8_URL" \
+      "$system_dir/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf" \
+      "(~4.0GB)"
+  else
+    log "Skipping thinking model (FIGMENT_SKIP_THINKING=true)"
+  fi
 
   if [[ "${FIGMENT_SKIP_CODER:-false}" != "true" ]]; then
     download_or_copy_local_asset \
@@ -707,8 +718,9 @@ Created/updated: $TARGET_DIR/.system/
 Installed files:
 - runtime-cpu/ ($cpu_runtime_summary)
 - $accelerated_summary
-- mlabonne_Qwen3-4B-abliterated-Q8_0.gguf
-- mlabonne_Qwen3-4B-abliterated-Q4_K_M.gguf
+- Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf
+- Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf
+- Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf
 - Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
 
 Rotorquant runtime source:

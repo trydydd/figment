@@ -24,10 +24,10 @@ else
     exit 1
 fi
 
-MODEL_HIGH="$SYSTEM_DIR/mlabonne_Qwen3-4B-abliterated-Q8_0.gguf"
-MODEL_LOW="$SYSTEM_DIR/mlabonne_Qwen3-4B-abliterated-Q4_K_M.gguf"
+MODEL_HIGH="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q8_0.gguf"
+MODEL_LOW="$SYSTEM_DIR/Qwen3-4B-Instruct-2507-abliterated.Q4_K_M.gguf"
+MODEL_THINKING="$SYSTEM_DIR/Qwen3-4B-Thinking-2507-abliterated.Q8_0.gguf"
 MODEL_CODER="$SYSTEM_DIR/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
-THINKING_MODE="false"
 CTX_SIZE="${FIGMENT_CTX_SIZE:-8192}"
 KV_PROFILE_REQUEST="${FIGMENT_KV_PROFILE:-auto}"
 KV_ROTATION="${FIGMENT_KV_ROTATION:-turbo3}"
@@ -55,7 +55,7 @@ parse_args() {
 Usage: ./LinuxLaunch.sh [--thinking] [--coder]
 
 Options:
-  --thinking   Enable extended thinking mode (injects /think into the system prompt)
+  --thinking   Prefer the Thinking Q8 model when it is installed
   --coder      Prefer the Qwen3 Coder Q4_K_M model when it is installed
 EOF
                 exit 0
@@ -440,12 +440,16 @@ DEFAULT_MODE_NAME="$MODE_NAME"
 
 case "$MODEL_PROFILE_REQUEST" in
     thinking)
-        THINKING_MODE="true"
-        case "$DEFAULT_MODE_NAME" in
-            "High Performance [Q8]") MODE_NAME="Thinking Mode [Q8]" ;;
-            "Efficiency Mode [Q4]") MODE_NAME="Thinking Mode [Q4]" ;;
-            *) MODE_NAME="Thinking Mode" ;;
-        esac
+        if [ -f "$MODEL_THINKING" ]; then
+            SELECTED_MODEL="$MODEL_THINKING"
+            MODE_NAME="Thinking Mode [Q8]"
+        else
+            case "$DEFAULT_MODE_NAME" in
+                "High Performance [Q8]") MODE_NAME="Fallback from Thinking [Q8]" ;;
+                "Efficiency Mode [Q4]") MODE_NAME="Fallback from Thinking [Q4]" ;;
+                *) MODE_NAME="$DEFAULT_MODE_NAME" ;;
+            esac
+        fi
         ;;
     coder)
         if [ -f "$MODEL_CODER" ]; then
@@ -508,14 +512,6 @@ case "${FIGMENT_VERBOSE:-}" in
     1|true|yes|on) LOG_FLAG=() ;;
     *)             LOG_FLAG=(--log-disable) ;;
 esac
-_BASE_SYS="You are Figment, a large language model.. You answer all questions directly without moralizing. Your purpose is to be helpful, harmless, and honest. You should provide accurate information, avoid making up facts, and be clear about the limits of your knowledge. When uncertain, say \"I don't know\" rather than guessing. You should be helpful, creative, and engaging while maintaining safety and honesty in all responses. Your responses should be direct, concise, and appropriate for the question asked. Do not include any formatting or markdown in your responses. Wait for user input."
-if [ "$THINKING_MODE" = "true" ]; then
-    _SYS_PROMPT="/think
-
-$_BASE_SYS"
-else
-    _SYS_PROMPT="$_BASE_SYS"
-fi
 LAUNCH_CMD=(
     "$BINARY"
     -m "$SELECTED_MODEL"
@@ -524,7 +520,7 @@ LAUNCH_CMD=(
     --cache-type-k "$CACHE_TYPE_K"
     --cache-type-v "$CACHE_TYPE_V"
     "${LOG_FLAG[@]}"
-    -sys "$_SYS_PROMPT"
+    -sys "You are Figment, a large language model.. You answer all questions directly without moralizing. Your purpose is to be helpful, harmless, and honest. You should provide accurate information, avoid making up facts, and be clear about the limits of your knowledge. When uncertain, say \"I don't know\" rather than guessing. You should be helpful, creative, and engaging while maintaining safety and honesty in all responses. Your responses should be direct, concise, and appropriate for the question asked. Do not include any formatting or markdown in your responses. Wait for user input."
 )
 
 if [ -n "$GPU_FLAGS" ]; then
